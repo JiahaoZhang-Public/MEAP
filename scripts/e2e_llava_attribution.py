@@ -102,9 +102,11 @@ def build_demo_images() -> List[np.ndarray]:
 
 
 def build_demo_prompts() -> Dict[str, List[str]]:
+    # Keep prompt templates token-length aligned (single-token swap: "white" <-> "black")
+    # so clean/corrupt attention masks match for attribution.
     return {
-        "clean": ["USER: <image>\nQuestion: What color is the square?\nASSISTANT:"],
-        "corrupt": ["USER: <image>\nQuestion: What animal is shown?\nASSISTANT:"],
+        "clean": ["USER: <image>\nQuestion: Is the square white?\nASSISTANT:"],
+        "corrupt": ["USER: <image>\nQuestion: Is the square black?\nASSISTANT:"],
     }
 
 
