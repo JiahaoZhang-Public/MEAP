@@ -1,0 +1,3 @@
+[submodule "vendor/eap-ig"]
+	path = vendor/eap-ig
+	url = https://github.com/hannamw/EAP-IG.git
