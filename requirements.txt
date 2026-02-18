@@ -1,6 +1,12 @@
+einops
+matplotlib
 mkdocs
+numpy
 pip
 pytest
 python-dotenv
 ruff
+torch
+transformer-lens
+transformers
 -e .
