@@ -113,7 +113,11 @@ def forward_with_hooks(
     if not merged_fwd_hooks and not bwd_hooks:
         return model(model_inputs.tokens, **kwargs)
 
-    with model.hooks(fwd_hooks=merged_fwd_hooks, bwd_hooks=bwd_hooks):
+    hook_kwargs = {"fwd_hooks": merged_fwd_hooks}
+    if bwd_hooks is not None:
+        hook_kwargs["bwd_hooks"] = bwd_hooks
+
+    with model.hooks(**hook_kwargs):
         return model(model_inputs.tokens, **kwargs)
 
 
