@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import argparse
+from collections import defaultdict
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 import hashlib
+import importlib.metadata
 import json
 import os
 from pathlib import Path
@@ -12,12 +14,14 @@ import platform
 import random
 import subprocess
 import sys
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
+from huggingface_hub import hf_hub_download
 import numpy as np
+from safetensors.torch import load_file
 import torch
 from transformer_lens import HookedTransformer
-from transformers import AutoProcessor
+from transformers import AutoConfig, AutoModelForCausalLM, AutoProcessor
 
 from multimodal_lm_eap_ig import (
     DEFAULT_BACKBONE_MODEL_ID,
@@ -33,6 +37,7 @@ from multimodal_lm_eap_ig import (
 class RunConfig:
     model_id: str
     backbone_model_id: str
+    language_weights_source: str
     method: str
     ig_steps: int
     topk: int
@@ -47,6 +52,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--model-id", default=DEFAULT_MULTIMODAL_MODEL_ID)
     parser.add_argument("--backbone-model-id", default=DEFAULT_BACKBONE_MODEL_ID)
+    parser.add_argument(
+        "--language-weights-source",
+        default="llava",
+        choices=["llava", "backbone"],
+        help="`llava`: use llava language_model weights; `backbone`: use backbone weights directly.",
+    )
     parser.add_argument(
         "--method",
         default="EAP",
@@ -110,27 +121,132 @@ def build_demo_prompts() -> Dict[str, List[str]]:
     }
 
 
-def load_tlens_backbone(model_id: str, device: str, dtype: torch.dtype) -> HookedTransformer:
-    try:
+def load_llava_language_model_for_tlens(
+    model_id: str,
+    *,
+    dtype: torch.dtype,
+    hf_token: Optional[str] = None,
+):
+    """Load llava language_model.* weights into a standalone AutoModelForCausalLM."""
+    kwargs: Dict[str, Any] = {}
+    if hf_token:
+        kwargs["token"] = hf_token
+
+    cfg = AutoConfig.from_pretrained(model_id, **kwargs)
+    if not hasattr(cfg, "text_config"):
+        raise ValueError(f"{model_id} does not expose text_config; cannot extract language model")
+
+    hf_lm = AutoModelForCausalLM.from_config(cfg.text_config, torch_dtype=dtype)
+    expected_keys = set(hf_lm.state_dict().keys())
+
+    index_path = hf_hub_download(model_id, "model.safetensors.index.json", **kwargs)
+    with open(index_path, encoding="utf-8") as f:
+        weight_map = json.load(f)["weight_map"]
+
+    prefix = "language_model."
+    shard_to_keys = defaultdict(list)
+    for key, shard in weight_map.items():
+        if key.startswith(prefix):
+            shard_to_keys[shard].append(key)
+
+    loaded_keys = set()
+    unexpected_keys = set()
+
+    for shard_name, shard_keys in shard_to_keys.items():
+        shard_path = hf_hub_download(model_id, shard_name, **kwargs)
+        shard_state = load_file(shard_path, device="cpu")
+        remapped = {}
+        for full_key in shard_keys:
+            mapped_key = full_key[len(prefix) :]
+            if mapped_key in expected_keys:
+                remapped[mapped_key] = shard_state[full_key]
+                loaded_keys.add(mapped_key)
+            else:
+                unexpected_keys.add(mapped_key)
+        hf_lm.load_state_dict(remapped, strict=False)
+
+    missing_keys = sorted(expected_keys - loaded_keys)
+    if missing_keys:
+        raise ValueError(
+            "Missing language-model keys when extracting llava language weights. "
+            f"Examples: {missing_keys[:8]}"
+        )
+    if unexpected_keys:
+        print(f"Warning: ignored {len(unexpected_keys)} unexpected mapped keys from llava language weights")
+
+    hf_lm.eval()
+    return hf_lm
+
+
+def load_tlens_backbone(
+    model_id: str,
+    *,
+    tokenizer,
+    device: str,
+    dtype: torch.dtype,
+    llava_model_id: str,
+    language_weights_source: str,
+    hf_token: Optional[str] = None,
+) -> HookedTransformer:
+    kwargs: Dict[str, Any] = {}
+    if hf_token:
+        kwargs["token"] = hf_token
+
+    if language_weights_source == "llava":
+        hf_lm = load_llava_language_model_for_tlens(
+            llava_model_id,
+            dtype=dtype,
+            hf_token=hf_token,
+        )
         model = HookedTransformer.from_pretrained(
             model_id,
+            hf_model=hf_lm,
+            tokenizer=tokenizer,
             device=device,
             dtype=dtype,
+            fold_ln=False,
+            center_writing_weights=False,
+            center_unembed=False,
+            fold_value_biases=False,
             default_padding_side="right",
+            **kwargs,
         )
-    except Exception:
-        model = HookedTransformer.from_pretrained_no_processing(
-            model_id,
-            device=device,
-            dtype=dtype,
-            default_padding_side="right",
-        )
+    else:
+        try:
+            model = HookedTransformer.from_pretrained(
+                model_id,
+                tokenizer=tokenizer,
+                device=device,
+                dtype=dtype,
+                fold_ln=False,
+                center_writing_weights=False,
+                center_unembed=False,
+                fold_value_biases=False,
+                default_padding_side="right",
+                **kwargs,
+            )
+        except Exception:
+            model = HookedTransformer.from_pretrained_no_processing(
+                model_id,
+                device=device,
+                dtype=dtype,
+                default_padding_side="right",
+                **kwargs,
+            )
 
-    model.cfg.use_attn_result = True
-    model.cfg.use_split_qkv_input = True
-    model.cfg.use_hook_mlp_in = True
-    if model.cfg.n_key_value_heads is not None:
-        model.cfg.ungroup_grouped_query_attention = True
+    model.eval()
+    model.requires_grad_(False)
+
+    try:
+        model.cfg.use_attn_result = True
+        model.cfg.use_split_qkv_input = True
+        model.cfg.use_hook_mlp_in = True
+        if model.cfg.n_key_value_heads is not None:
+            model.cfg.ungroup_grouped_query_attention = True
+    except Exception as exc:
+        raise RuntimeError(
+            "Failed to set TLens hook flags; this model may be incompatible with EAP-IG"
+        ) from exc
 
     return model
 
@@ -169,6 +285,7 @@ def main() -> None:
     run_config = RunConfig(
         model_id=args.model_id,
         backbone_model_id=args.backbone_model_id,
+        language_weights_source=args.language_weights_source,
         method=args.method,
         ig_steps=args.ig_steps,
         topk=args.topk,
@@ -197,9 +314,20 @@ def main() -> None:
         backbone_model_id=args.backbone_model_id,
     )
 
-    print(f"Loading TransformerLens backbone: {args.backbone_model_id}")
+    print(
+        f"Loading TransformerLens backbone: {args.backbone_model_id} "
+        f"(weights={args.language_weights_source})"
+    )
     dtype = dtype_from_name(args.dtype)
-    model = load_tlens_backbone(args.backbone_model_id, args.device, dtype)
+    model = load_tlens_backbone(
+        args.backbone_model_id,
+        tokenizer=processor.tokenizer,
+        device=args.device,
+        dtype=dtype,
+        llava_model_id=args.model_id,
+        language_weights_source=args.language_weights_source,
+        hf_token=args.hf_token,
+    )
 
     graph = Graph.from_model(model)
     metric = make_metric_fn(model.tokenizer)
@@ -246,7 +374,7 @@ def main() -> None:
             "platform": platform.platform(),
             "torch": torch.__version__,
             "transformers": __import__("transformers").__version__,
-            "transformer_lens": __import__("transformer_lens").__version__,
+            "transformer_lens": importlib.metadata.version("transformer_lens"),
         },
         "artifacts": {
             "scores": str(report_dir / "scores.pt"),
