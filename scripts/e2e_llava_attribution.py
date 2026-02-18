@@ -44,6 +44,7 @@ class RunConfig:
     seed: int
     device: str
     dtype: str
+    metric_token: str
 
 
 def parse_args() -> argparse.Namespace:
@@ -69,6 +70,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--dtype", default="float16", choices=["float16", "bfloat16", "float32"])
+    parser.add_argument(
+        "--metric-token",
+        default=" white",
+        help="Preferred token string for the scalar metric logit. Falls back automatically if not single-token.",
+    )
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--output-dir", default="reports")
     parser.add_argument(
@@ -252,11 +258,8 @@ def load_tlens_backbone(
 
 
 def make_metric_fn(tokenizer):
-    target_token = " white"
-    target_token_id = tokenizer.encode(target_token, add_special_tokens=False)
-    if len(target_token_id) != 1:
-        raise ValueError(f"Expected a single token id for target token '{target_token}'")
-    target_id = int(target_token_id[0])
+    target_id, chosen_token = resolve_metric_token_id(tokenizer, preferred_token=" white")
+    print(f"Metric token: {chosen_token!r} (id={target_id})")
 
     def metric(logits: torch.Tensor, clean_logits: torch.Tensor, batch) -> torch.Tensor:
         del clean_logits
@@ -265,6 +268,42 @@ def make_metric_fn(tokenizer):
         return final_logits[:, target_id].sum()
 
     return metric
+
+
+def resolve_metric_token_id(tokenizer, preferred_token: str) -> tuple[int, str]:
+    def encode_one(s: str) -> Optional[int]:
+        ids = tokenizer.encode(s, add_special_tokens=False)
+        if len(ids) == 1:
+            return int(ids[0])
+        return None
+
+    candidates = [
+        preferred_token,
+        " white",
+        " black",
+        " yes",
+        " no",
+        " true",
+        " false",
+        ".",
+        "?",
+    ]
+
+    seen = set()
+    for token in candidates:
+        if token in seen:
+            continue
+        seen.add(token)
+        token_id = encode_one(token)
+        if token_id is not None:
+            return token_id, token
+
+    eos_id = getattr(tokenizer, "eos_token_id", None)
+    if eos_id is not None:
+        print("Warning: no single-token metric candidate found; falling back to eos_token_id")
+        return int(eos_id), "<eos>"
+
+    raise ValueError("Unable to resolve any token id for metric.")
 
 
 def hash_inputs(prompts: Dict[str, List[str]], images: List[np.ndarray]) -> str:
@@ -279,6 +318,9 @@ def main() -> None:
     args = parse_args()
     if args.ig_steps <= 0:
         raise ValueError("--ig-steps must be > 0")
+    if args.device == "cpu" and args.dtype == "float16":
+        print("Warning: float16 on CPU is unsupported/unstable. Switching dtype to bfloat16.")
+        args.dtype = "bfloat16"
 
     set_seed(args.seed)
 
@@ -292,6 +334,7 @@ def main() -> None:
         seed=args.seed,
         device=args.device,
         dtype=args.dtype,
+        metric_token=args.metric_token,
     )
 
     processor_kwargs: Dict[str, Any] = {}
@@ -330,7 +373,17 @@ def main() -> None:
     )
 
     graph = Graph.from_model(model)
-    metric = make_metric_fn(model.tokenizer)
+    metric_token_id, metric_token_text = resolve_metric_token_id(
+        model.tokenizer,
+        preferred_token=args.metric_token,
+    )
+    print(f"Metric token: {metric_token_text!r} (id={metric_token_id})")
+
+    def metric(logits: torch.Tensor, clean_logits: torch.Tensor, batch) -> torch.Tensor:
+        del clean_logits
+        last_positions = (batch.input_lengths - 1).to(device=logits.device)
+        final_logits = logits[torch.arange(logits.size(0), device=logits.device), last_positions]
+        return final_logits[:, metric_token_id].sum()
 
     print(f"Running attribution method={args.method}")
     scores = attribute(
