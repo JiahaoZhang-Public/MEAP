@@ -2,6 +2,7 @@ einops
 matplotlib
 mkdocs
 numpy
+Pillow
 pip
 pytest
 python-dotenv
