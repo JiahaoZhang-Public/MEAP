@@ -302,6 +302,10 @@ class HFLLMBackend:
     def _resolve_decoder_backbone(self, model: torch.nn.Module) -> Tuple[torch.nn.Module, str]:
         if hasattr(model, "language_model"):
             language_model = model.language_model
+            if hasattr(language_model, "layers"):
+                return language_model, "llama_like"
+            if hasattr(language_model, "h"):
+                return language_model, "gpt2_like"
             if hasattr(language_model, "model") and hasattr(language_model.model, "layers"):
                 return language_model.model, "llama_like"
             if hasattr(language_model, "transformer") and hasattr(language_model.transformer, "h"):

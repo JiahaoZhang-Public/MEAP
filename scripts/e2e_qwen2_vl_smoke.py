@@ -5,14 +5,19 @@ import argparse
 from dataclasses import asdict, dataclass
 import json
 from pathlib import Path
+import sys
 from typing import Any, Optional
 
 import numpy as np
 from PIL import Image
 import torch
-from transformers import AutoModelForCausalLM, AutoProcessor
+from transformers import AutoModelForVision2Seq, AutoProcessor
 
-from multimodal_lm_eap_ig import HFLLMBackend, attribute_from_dataloader
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from multimodal_lm_eap_ig import HFLLMBackend, attribute_from_dataloader  # noqa: E402
 
 
 @dataclass
@@ -48,13 +53,39 @@ def _to_dtype(name: str) -> torch.dtype:
 
 
 def _load_multimodal_model(model_id: str, *, dtype: torch.dtype, token: Optional[str]):
-    kwargs: dict[str, Any] = {"torch_dtype": dtype, "trust_remote_code": True}
+    kwargs: dict[str, Any] = {"dtype": dtype, "trust_remote_code": True}
     if token:
         kwargs["token"] = token
 
-    # Qwen2-VL may be registered under different auto classes depending on transformers version.
-    model = AutoModelForCausalLM.from_pretrained(model_id, **kwargs)
-    return model
+    errors: list[str] = []
+
+    # Preferred path for multimodal conditional-generation models (Qwen2-VL, Llava, etc.).
+    try:
+        return AutoModelForVision2Seq.from_pretrained(model_id, **kwargs)
+    except Exception as exc:  # pragma: no cover - exercised in env-dependent runs.
+        errors.append(f"AutoModelForVision2Seq: {exc}")
+
+    # Fallback for transformer versions where Qwen2-VL is wired to this explicit class only.
+    try:
+        from transformers import Qwen2VLForConditionalGeneration
+
+        return Qwen2VLForConditionalGeneration.from_pretrained(model_id, **kwargs)
+    except Exception as exc:  # pragma: no cover - exercised in env-dependent runs.
+        errors.append(f"Qwen2VLForConditionalGeneration: {exc}")
+
+    # Extra fallback for API variants in some transformers versions.
+    try:
+        from transformers import AutoModelForImageTextToText
+
+        return AutoModelForImageTextToText.from_pretrained(model_id, **kwargs)
+    except Exception as exc:  # pragma: no cover - exercised in env-dependent runs.
+        errors.append(f"AutoModelForImageTextToText: {exc}")
+
+    raise RuntimeError(
+        "Failed to load multimodal model with Vision-Language auto classes. "
+        "Tried: AutoModelForVision2Seq, Qwen2VLForConditionalGeneration, "
+        f"AutoModelForImageTextToText. Errors: {errors}"
+    )
 
 
 def _build_demo_image() -> Image.Image:
@@ -65,16 +96,26 @@ def _build_demo_image() -> Image.Image:
 
 def _build_prompt(processor, question: str) -> str:
     if hasattr(processor, "apply_chat_template"):
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "image"},
-                    {"type": "text", "text": question},
-                ],
-            }
-        ]
-        return processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        processor_name = processor.__class__.__name__.lower()
+        if "qwen2vl" in processor_name or "qwen2_vl" in processor_name:
+            # Qwen2-VL processor template expects content list directly.
+            messages = [
+                {"type": "image"},
+                {"type": "text", "text": question},
+            ]
+        else:
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image"},
+                        {"type": "text", "text": question},
+                    ],
+                }
+            ]
+        prompt = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        if isinstance(prompt, str) and prompt.strip():
+            return prompt
 
     return f"<image>\n{question}"
 
@@ -98,6 +139,11 @@ def main() -> None:
     image = _build_demo_image()
     clean_prompt = _build_prompt(processor, "Is the square white?")
     corrupt_prompt = _build_prompt(processor, "Is the square black?")
+    if not clean_prompt.strip() or not corrupt_prompt.strip():
+        raise RuntimeError(
+            "Prompt template expansion produced empty text. "
+            "Check processor.apply_chat_template message schema for this model version."
+        )
 
     dataloader = [
         {
