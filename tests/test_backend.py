@@ -1,6 +1,13 @@
 import pytest
 import torch
-from transformers import GPT2Config, GPT2LMHeadModel, LlamaConfig, LlamaForCausalLM
+from transformers import (
+    GPT2Config,
+    GPT2LMHeadModel,
+    LlamaConfig,
+    LlamaForCausalLM,
+    OPTConfig,
+    OPTForCausalLM,
+)
 
 from multimodal_lm_eap_ig.attribute import attribute
 from multimodal_lm_eap_ig.backend import HFLLMBackend
@@ -19,6 +26,18 @@ def _tiny_llama_lm() -> LlamaForCausalLM:
         max_position_embeddings=32,
     )
     return LlamaForCausalLM(cfg)
+
+
+def _tiny_opt_lm() -> OPTForCausalLM:
+    cfg = OPTConfig(
+        hidden_size=16,
+        ffn_dim=32,
+        num_hidden_layers=1,
+        num_attention_heads=4,
+        vocab_size=128,
+        max_position_embeddings=32,
+    )
+    return OPTForCausalLM(cfg)
 
 
 def _prepared_batch() -> PreparedBatch:
@@ -81,6 +100,26 @@ def test_hf_backend_supports_gpt2_and_builds_hook_scaffold():
     assert "blocks.0.hook_resid_post" in names
 
 
+def test_hf_backend_supports_opt_and_builds_hook_scaffold():
+    opt_model = _tiny_opt_lm()
+    backend = HFLLMBackend(opt_model)
+
+    assert backend.config.n_layers == 1
+    assert backend.config.n_heads == 4
+    assert backend.config.d_model == 16
+    assert backend.config.parallel_attn_mlp is False
+
+    names = set(backend.supported_hook_names)
+    assert "hook_embed" in names
+    assert "blocks.0.attn.hook_result" in names
+    assert "blocks.0.hook_q_input" in names
+    assert "blocks.0.hook_k_input" in names
+    assert "blocks.0.hook_v_input" in names
+    assert "blocks.0.hook_mlp_in" in names
+    assert "blocks.0.hook_mlp_out" in names
+    assert "blocks.0.hook_resid_post" in names
+
+
 def test_hf_backend_rejects_non_decoder_backbone():
     class DummyModel(torch.nn.Module):
         def __init__(self):
@@ -92,8 +131,52 @@ def test_hf_backend_rejects_non_decoder_backbone():
         HFLLMBackend(DummyModel())
 
 
+def test_hf_backend_reports_candidate_paths_for_invalid_decoder_shape():
+    class BadDecoderLayer(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.self_attn = torch.nn.Linear(4, 4)
+
+    class BadDecoder(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.layers = torch.nn.ModuleList([BadDecoderLayer()])
+            self.embed_tokens = torch.nn.Embedding(8, 4)
+
+    class BadModel(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.decoder = BadDecoder()
+            self.config = type(
+                "Cfg",
+                (),
+                {"hidden_size": 4, "num_hidden_layers": 1, "num_attention_heads": 1},
+            )()
+
+    with pytest.raises(ValueError, match="Tried backbones:"):
+        HFLLMBackend(BadModel())
+
+
 def test_attribute_smoke_with_hf_backend_succeeds():
     model = _tiny_llama_lm()
+    backend = HFLLMBackend(model)
+    graph = Graph.from_model(backend.config)
+
+    scores = attribute(
+        model=model,
+        backend=backend,
+        graph=graph,
+        batches=[_prepared_batch()],
+        metric=_metric,
+        method="smoke",
+    )
+
+    assert scores.shape == (graph.n_forward, graph.n_backward)
+    assert torch.all(scores == 0)
+
+
+def test_attribute_smoke_with_hf_opt_backend_succeeds():
+    model = _tiny_opt_lm()
     backend = HFLLMBackend(model)
     graph = Graph.from_model(backend.config)
 

@@ -10,6 +10,7 @@ from typing import (
     List,
     Optional,
     Protocol,
+    Sequence,
     Tuple,
     runtime_checkable,
 )
@@ -92,6 +93,247 @@ class _HookTarget:
     module: torch.nn.Module
     mode: str  # 'forward' or 'pre'
     output_index: Optional[int] = None
+
+
+@dataclass
+class AdapterResolution:
+    path: str
+    base_model: torch.nn.Module
+    arch_kind: str
+    layers: List[torch.nn.Module]
+    layer_accessors: Dict[str, str]
+    embed_module: torch.nn.Module
+    resid_module: torch.nn.Module
+
+
+@runtime_checkable
+class ArchitectureAdapter(Protocol):
+    name: str
+    arch_kind: str
+
+    def resolve_from_backbone(
+        self,
+        path: str,
+        backbone: torch.nn.Module,
+    ) -> Optional[AdapterResolution]:
+        ...
+
+    def attn_result_module(self, attn_module: torch.nn.Module) -> torch.nn.Module:
+        ...
+
+    def qkv_hook_modules(self, attn_module: torch.nn.Module) -> Dict[str, torch.nn.Module]:
+        ...
+
+
+def _iter_decoder_backbone_candidates(model: torch.nn.Module) -> List[Tuple[str, torch.nn.Module]]:
+    candidates: List[Tuple[str, torch.nn.Module]] = []
+
+    def _add(path: str, module: Any) -> None:
+        if isinstance(module, torch.nn.Module):
+            candidates.append((path, module))
+
+    _add("model", model)
+
+    if hasattr(model, "language_model"):
+        lm = model.language_model
+        _add("model.language_model", lm)
+        _add("model.language_model.model", getattr(lm, "model", None))
+        _add("model.language_model.model.decoder", getattr(getattr(lm, "model", None), "decoder", None))
+        _add("model.language_model.transformer", getattr(lm, "transformer", None))
+        _add("model.language_model.decoder", getattr(lm, "decoder", None))
+
+    _add("model.model", getattr(model, "model", None))
+    _add("model.model.decoder", getattr(getattr(model, "model", None), "decoder", None))
+    _add("model.transformer", getattr(model, "transformer", None))
+    _add("model.decoder", getattr(model, "decoder", None))
+
+    deduped: List[Tuple[str, torch.nn.Module]] = []
+    seen = set()
+    for path, module in candidates:
+        marker = id(module)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        deduped.append((path, module))
+    return deduped
+
+
+class _BaseArchitectureAdapter:
+    name: str
+    arch_kind: str
+    layer_accessors: Dict[str, str]
+    required_attn_attrs: Sequence[str]
+
+    def matches_backbone(self, backbone: torch.nn.Module) -> bool:
+        raise NotImplementedError
+
+    def get_layers(self, backbone: torch.nn.Module) -> Optional[Sequence[torch.nn.Module]]:
+        raise NotImplementedError
+
+    def get_embed_module(self, backbone: torch.nn.Module) -> Optional[torch.nn.Module]:
+        raise NotImplementedError
+
+    def get_resid_module(
+        self,
+        backbone: torch.nn.Module,
+        layers: List[torch.nn.Module],
+    ) -> torch.nn.Module:
+        raise NotImplementedError
+
+    def attn_result_module(self, attn_module: torch.nn.Module) -> torch.nn.Module:
+        raise NotImplementedError
+
+    def qkv_hook_modules(self, attn_module: torch.nn.Module) -> Dict[str, torch.nn.Module]:
+        raise NotImplementedError
+
+    def resolve_from_backbone(
+        self,
+        path: str,
+        backbone: torch.nn.Module,
+    ) -> Optional[AdapterResolution]:
+        if not self.matches_backbone(backbone):
+            return None
+
+        layers_raw = self.get_layers(backbone)
+        if layers_raw is None:
+            raise ValueError(f"{self.name} @ {path}: missing decoder layer stack")
+        layers = list(layers_raw)
+        if len(layers) == 0:
+            raise ValueError(f"{self.name} @ {path}: decoder layer stack is empty")
+
+        for idx, layer in enumerate(layers):
+            missing = [attr for attr in self.layer_accessors.values() if not hasattr(layer, attr)]
+            if missing:
+                raise ValueError(
+                    f"{self.name} @ {path}: layer {idx} missing required attrs {missing}"
+                )
+            attn = getattr(layer, self.layer_accessors["attn"])
+            missing_attn = [attr for attr in self.required_attn_attrs if not hasattr(attn, attr)]
+            if missing_attn:
+                raise ValueError(
+                    f"{self.name} @ {path}: layer {idx} attention missing attrs {missing_attn}"
+                )
+
+        embed_module = self.get_embed_module(backbone)
+        if embed_module is None:
+            raise ValueError(f"{self.name} @ {path}: missing embedding module")
+
+        resid_module = self.get_resid_module(backbone, layers)
+        return AdapterResolution(
+            path=path,
+            base_model=backbone,
+            arch_kind=self.arch_kind,
+            layers=layers,
+            layer_accessors=dict(self.layer_accessors),
+            embed_module=embed_module,
+            resid_module=resid_module,
+        )
+
+
+class LlamaLikeAdapter(_BaseArchitectureAdapter):
+    name = "llama_like"
+    arch_kind = "llama_like"
+    layer_accessors = {
+        "attn": "self_attn",
+        "mlp": "mlp",
+        "ln1": "input_layernorm",
+        "ln2": "post_attention_layernorm",
+    }
+    required_attn_attrs = ("q_proj", "k_proj", "v_proj", "o_proj")
+
+    def matches_backbone(self, backbone: torch.nn.Module) -> bool:
+        return hasattr(backbone, "layers")
+
+    def get_layers(self, backbone: torch.nn.Module) -> Optional[Sequence[torch.nn.Module]]:
+        return getattr(backbone, "layers", None)
+
+    def get_embed_module(self, backbone: torch.nn.Module) -> Optional[torch.nn.Module]:
+        return getattr(backbone, "embed_tokens", None)
+
+    def get_resid_module(self, backbone: torch.nn.Module, layers: List[torch.nn.Module]) -> torch.nn.Module:
+        return getattr(backbone, "norm", layers[-1])
+
+    def attn_result_module(self, attn_module: torch.nn.Module) -> torch.nn.Module:
+        return attn_module.o_proj
+
+    def qkv_hook_modules(self, attn_module: torch.nn.Module) -> Dict[str, torch.nn.Module]:
+        return {
+            "q": attn_module.q_proj,
+            "k": attn_module.k_proj,
+            "v": attn_module.v_proj,
+        }
+
+
+class GPT2LikeAdapter(_BaseArchitectureAdapter):
+    name = "gpt2_like"
+    arch_kind = "gpt2_like"
+    layer_accessors = {
+        "attn": "attn",
+        "mlp": "mlp",
+        "ln1": "ln_1",
+        "ln2": "ln_2",
+    }
+    required_attn_attrs = ("c_attn", "c_proj")
+
+    def matches_backbone(self, backbone: torch.nn.Module) -> bool:
+        return hasattr(backbone, "h")
+
+    def get_layers(self, backbone: torch.nn.Module) -> Optional[Sequence[torch.nn.Module]]:
+        return getattr(backbone, "h", None)
+
+    def get_embed_module(self, backbone: torch.nn.Module) -> Optional[torch.nn.Module]:
+        return getattr(backbone, "wte", None)
+
+    def get_resid_module(self, backbone: torch.nn.Module, layers: List[torch.nn.Module]) -> torch.nn.Module:
+        return getattr(backbone, "ln_f", layers[-1])
+
+    def attn_result_module(self, attn_module: torch.nn.Module) -> torch.nn.Module:
+        return attn_module.c_proj
+
+    def qkv_hook_modules(self, attn_module: torch.nn.Module) -> Dict[str, torch.nn.Module]:
+        return {
+            "q": attn_module.c_attn,
+            "k": attn_module.c_attn,
+            "v": attn_module.c_attn,
+        }
+
+
+class OPTLikeAdapter(_BaseArchitectureAdapter):
+    name = "opt_like"
+    arch_kind = "opt_like"
+    layer_accessors = {
+        "attn": "self_attn",
+        "mlp": "fc2",
+        "ln1": "self_attn_layer_norm",
+        "ln2": "final_layer_norm",
+    }
+    required_attn_attrs = ("q_proj", "k_proj", "v_proj", "out_proj")
+
+    def matches_backbone(self, backbone: torch.nn.Module) -> bool:
+        return hasattr(backbone, "layers")
+
+    def get_layers(self, backbone: torch.nn.Module) -> Optional[Sequence[torch.nn.Module]]:
+        return getattr(backbone, "layers", None)
+
+    def get_embed_module(self, backbone: torch.nn.Module) -> Optional[torch.nn.Module]:
+        return getattr(backbone, "embed_tokens", None)
+
+    def get_resid_module(self, backbone: torch.nn.Module, layers: List[torch.nn.Module]) -> torch.nn.Module:
+        if hasattr(backbone, "final_layer_norm"):
+            return backbone.final_layer_norm
+        if hasattr(backbone, "project_out"):
+            return backbone.project_out
+        return layers[-1]
+
+    def attn_result_module(self, attn_module: torch.nn.Module) -> torch.nn.Module:
+        return attn_module.out_proj
+
+    def qkv_hook_modules(self, attn_module: torch.nn.Module) -> Dict[str, torch.nn.Module]:
+        return {
+            "q": attn_module.q_proj,
+            "k": attn_module.k_proj,
+            "v": attn_module.v_proj,
+        }
 
 
 def _parse_torch_dtype(dtype: Any) -> torch.dtype:
@@ -274,11 +516,18 @@ class HFLLMBackend:
             self.model.to(**cast_kwargs)
 
         self._tokenizer = tokenizer
-        self._base_model, self._arch_kind = self._resolve_decoder_backbone(self.model)
-        self._layers, self._layer_accessors = self._resolve_decoder_layers(
-            self._base_model,
-            self._arch_kind,
-        )
+        self._adapter_registry: List[ArchitectureAdapter] = [
+            LlamaLikeAdapter(),
+            GPT2LikeAdapter(),
+            OPTLikeAdapter(),
+        ]
+        self._adapter, resolution = self._resolve_architecture(self.model)
+        self._base_model = resolution.base_model
+        self._arch_kind = resolution.arch_kind
+        self._layers = resolution.layers
+        self._layer_accessors = resolution.layer_accessors
+        self._embed_module = resolution.embed_module
+        self._resid_module = resolution.resid_module
         self._hook_targets = self._build_hook_targets()
         self._config = self._normalize_config(self.model)
         self._ln1_residual_cache: Dict[int, Tensor] = {}
@@ -299,74 +548,30 @@ class HFLLMBackend:
     def supported_hook_names(self) -> List[str]:
         return sorted(self._hook_targets.keys())
 
-    def _resolve_decoder_backbone(self, model: torch.nn.Module) -> Tuple[torch.nn.Module, str]:
-        if hasattr(model, "language_model"):
-            language_model = model.language_model
-            if hasattr(language_model, "layers"):
-                return language_model, "llama_like"
-            if hasattr(language_model, "h"):
-                return language_model, "gpt2_like"
-            if hasattr(language_model, "model") and hasattr(language_model.model, "layers"):
-                return language_model.model, "llama_like"
-            if hasattr(language_model, "transformer") and hasattr(language_model.transformer, "h"):
-                return language_model.transformer, "gpt2_like"
-        if hasattr(model, "model") and hasattr(model.model, "layers"):
-            return model.model, "llama_like"
-        if hasattr(model, "transformer") and hasattr(model.transformer, "h"):
-            return model.transformer, "gpt2_like"
-
-        raise ValueError(
-            "Unsupported HF architecture for HFLLMBackend. Expected decoder backbone with "
-            "attributes for either LLaMA-like models (model.layers) or GPT2-like models "
-            "(transformer.h), with per-layer attention and MLP modules."
-        )
-
-    def _resolve_decoder_layers(
+    def _resolve_architecture(
         self,
-        base_model: torch.nn.Module,
-        arch_kind: str,
-    ) -> Tuple[List[torch.nn.Module], Dict[str, str]]:
-        if arch_kind == "llama_like":
-            layers = getattr(base_model, "layers", None)
-            accessors = {
-                "attn": "self_attn",
-                "mlp": "mlp",
-                "ln1": "input_layernorm",
-                "ln2": "post_attention_layernorm",
-            }
-            required_attn_attrs = ("q_proj", "k_proj", "v_proj")
-        elif arch_kind == "gpt2_like":
-            layers = getattr(base_model, "h", None)
-            accessors = {
-                "attn": "attn",
-                "mlp": "mlp",
-                "ln1": "ln_1",
-                "ln2": "ln_2",
-            }
-            required_attn_attrs = ("c_attn",)
-        else:
-            raise ValueError(f"Unsupported architecture kind: {arch_kind}")
+        model: torch.nn.Module,
+    ) -> Tuple[ArchitectureAdapter, AdapterResolution]:
+        candidates = _iter_decoder_backbone_candidates(model)
+        errors: List[str] = []
 
-        if layers is None:
-            raise ValueError("Unsupported HF architecture: missing decoder layer stack")
-        if len(layers) == 0:
-            raise ValueError("Unsupported HF architecture: decoder layer stack is empty")
+        for path, backbone in candidates:
+            for adapter in self._adapter_registry:
+                try:
+                    resolved = adapter.resolve_from_backbone(path, backbone)
+                except ValueError as exc:
+                    errors.append(str(exc))
+                    continue
+                if resolved is not None:
+                    return adapter, resolved
 
-        for idx, layer in enumerate(layers):
-            missing = [attr for attr in accessors.values() if not hasattr(layer, attr)]
-            if missing:
-                raise ValueError(
-                    "Unsupported HF architecture: each decoder layer must expose self_attn/mlp and "
-                    f"norms. Layer {idx} missing: {missing}"
-                )
-            attn = getattr(layer, accessors["attn"])
-            missing_attn = [attr for attr in required_attn_attrs if not hasattr(attn, attr)]
-            if missing_attn:
-                raise ValueError(
-                    "Unsupported HF architecture: attention modules missing required projection "
-                    f"attributes for {arch_kind}. Layer {idx} missing: {missing_attn}"
-                )
-        return list(layers), accessors
+        candidate_paths = [path for path, _ in candidates]
+        details = "; ".join(errors[:6]) if errors else "no adapter produced a compatible backbone"
+        raise ValueError(
+            "Unsupported HF architecture for HFLLMBackend. "
+            f"Tried backbones: {candidate_paths}. "
+            f"Expected decoder-like structure with attention, MLP, and norm modules. Details: {details}"
+        )
 
     def _normalize_config(self, model: torch.nn.Module) -> BackendConfig:
         cfg = model.config
@@ -416,17 +621,7 @@ class HFLLMBackend:
         )
 
     def _build_hook_targets(self) -> Dict[str, _HookTarget]:
-        if self._arch_kind == "llama_like":
-            embed_module = getattr(self._base_model, "embed_tokens", None)
-            resid_module = getattr(self._base_model, "norm", self._layers[-1])
-        else:
-            embed_module = getattr(self._base_model, "wte", None)
-            resid_module = getattr(self._base_model, "ln_f", self._layers[-1])
-
-        if embed_module is None:
-            raise ValueError("Unsupported HF architecture: missing token embedding module")
-
-        targets: Dict[str, _HookTarget] = {"hook_embed": _HookTarget(embed_module, "forward")}
+        targets: Dict[str, _HookTarget] = {"hook_embed": _HookTarget(self._embed_module, "forward")}
 
         attn_attr = self._layer_accessors["attn"]
         mlp_attr = self._layer_accessors["mlp"]
@@ -435,29 +630,21 @@ class HFLLMBackend:
             mlp_module = getattr(layer, mlp_attr)
             ln2_module = getattr(layer, self._layer_accessors["ln2"])
 
-            if self._arch_kind == "llama_like":
-                attn_result_module = attn_module.o_proj
-            else:
-                attn_result_module = attn_module.c_proj
+            attn_result_module = self._adapter.attn_result_module(attn_module)
             targets[f"blocks.{layer_idx}.attn.hook_result"] = _HookTarget(
                 attn_result_module,
                 "pre",
             )
-            if self._arch_kind == "llama_like":
-                targets[f"blocks.{layer_idx}.hook_q_input"] = _HookTarget(attn_module.q_proj, "forward")
-                targets[f"blocks.{layer_idx}.hook_k_input"] = _HookTarget(attn_module.k_proj, "forward")
-                targets[f"blocks.{layer_idx}.hook_v_input"] = _HookTarget(attn_module.v_proj, "forward")
-            else:
-                # GPT2-style fused qkv projection; map q/k/v placeholders to shared c_attn input.
-                targets[f"blocks.{layer_idx}.hook_q_input"] = _HookTarget(attn_module.c_attn, "forward")
-                targets[f"blocks.{layer_idx}.hook_k_input"] = _HookTarget(attn_module.c_attn, "forward")
-                targets[f"blocks.{layer_idx}.hook_v_input"] = _HookTarget(attn_module.c_attn, "forward")
+            qkv_modules = self._adapter.qkv_hook_modules(attn_module)
+            targets[f"blocks.{layer_idx}.hook_q_input"] = _HookTarget(qkv_modules["q"], "forward")
+            targets[f"blocks.{layer_idx}.hook_k_input"] = _HookTarget(qkv_modules["k"], "forward")
+            targets[f"blocks.{layer_idx}.hook_v_input"] = _HookTarget(qkv_modules["v"], "forward")
 
             targets[f"blocks.{layer_idx}.hook_mlp_out"] = _HookTarget(mlp_module, "forward")
             targets[f"blocks.{layer_idx}.hook_mlp_in"] = _HookTarget(ln2_module, "forward")
 
         targets[f"blocks.{len(self._layers) - 1}.hook_resid_post"] = _HookTarget(
-            resid_module,
+            self._resid_module,
             "pre",
         )
 
