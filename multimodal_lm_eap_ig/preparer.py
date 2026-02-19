@@ -40,20 +40,10 @@ def _pad_pair_inputs(
 
 
 def _find_image_token_id(processor) -> Optional[int]:
-    if not hasattr(processor, "tokenizer"):
+    token_ids = _find_modality_token_ids(processor).get("image", [])
+    if len(token_ids) == 0:
         return None
-
-    tokenizer = processor.tokenizer
-    for token in ("<image>", "<im_patch>"):
-        token_id = tokenizer.convert_tokens_to_ids(token)
-        if token_id is None:
-            continue
-        unk_id = getattr(tokenizer, "unk_token_id", None)
-        if unk_id is not None and token_id == unk_id:
-            continue
-        if isinstance(token_id, int) and token_id >= 0:
-            return token_id
-    return None
+    return int(token_ids[0])
 
 
 def _image_token_spans(input_ids: Tensor, image_token_id: int):
@@ -73,6 +63,121 @@ def _resolve_pad_token_id(processor) -> int:
         if pad_token_id is None:
             pad_token_id = 0
     return int(pad_token_id)
+
+
+def _resolve_token_id_from_tokenizer(tokenizer, token: str) -> Optional[int]:
+    try:
+        token_id = tokenizer.convert_tokens_to_ids(token)
+    except Exception:
+        return None
+    if token_id is None:
+        return None
+    unk_id = getattr(tokenizer, "unk_token_id", None)
+    if unk_id is not None and token_id == unk_id:
+        return None
+    if isinstance(token_id, int) and token_id >= 0:
+        return int(token_id)
+    return None
+
+
+def _find_modality_token_ids(processor) -> Dict[str, list[int]]:
+    token_ids: Dict[str, set[int]] = {"image": set(), "video": set(), "audio": set()}
+
+    tokenizer = getattr(processor, "tokenizer", None)
+    if tokenizer is not None:
+        candidate_tokens = {
+            "image": ("<image>", "<im_patch>", "<|image_pad|>", "<image_pad>"),
+            "video": ("<video>", "<|video_pad|>", "<video_pad>"),
+            "audio": ("<audio>", "<|audio_pad|>", "<audio_pad>"),
+        }
+        for modality, tokens in candidate_tokens.items():
+            for token in tokens:
+                token_id = _resolve_token_id_from_tokenizer(tokenizer, token)
+                if token_id is not None:
+                    token_ids[modality].add(token_id)
+
+    for modality in ("image", "video", "audio"):
+        attr_name = f"{modality}_token_id"
+        for obj in (processor, tokenizer):
+            if obj is None:
+                continue
+            value = getattr(obj, attr_name, None)
+            if isinstance(value, int) and value >= 0:
+                token_ids[modality].add(int(value))
+
+    return {k: sorted(v) for k, v in token_ids.items()}
+
+
+def _modality_token_count_per_row(input_ids: Tensor, token_ids: Sequence[int]) -> list[int]:
+    if len(token_ids) == 0:
+        return [0 for _ in range(int(input_ids.shape[0]))]
+    token_tensor = torch.tensor(token_ids, device=input_ids.device, dtype=input_ids.dtype)
+    # [batch, seq, n_tokens] -> [batch, seq] -> [batch]
+    is_modality = (input_ids.unsqueeze(-1) == token_tensor.view(1, 1, -1)).any(dim=-1)
+    return [int(x) for x in is_modality.sum(dim=-1).tolist()]
+
+
+def _feature_present(inputs: Dict[str, Tensor], keys: Sequence[str]) -> bool:
+    return any(key in inputs for key in keys)
+
+
+def _precheck_modality_placeholders(
+    clean_inputs: Dict[str, Tensor],
+    corrupt_inputs: Dict[str, Tensor],
+    *,
+    processor,
+) -> Dict[str, Dict[str, list[int]]]:
+    if "input_ids" not in clean_inputs or "input_ids" not in corrupt_inputs:
+        return {}
+
+    token_ids = _find_modality_token_ids(processor)
+    modality_feature_keys = {
+        "image": ("pixel_values", "image_grid_thw"),
+        "video": ("pixel_values_videos", "video_grid_thw"),
+        "audio": ("input_features", "input_values"),
+    }
+
+    meta_counts: Dict[str, Dict[str, list[int]]] = {}
+    for modality, feature_keys in modality_feature_keys.items():
+        if not (
+            _feature_present(clean_inputs, feature_keys)
+            or _feature_present(corrupt_inputs, feature_keys)
+        ):
+            continue
+
+        ids = token_ids.get(modality, [])
+        if len(ids) == 0:
+            # Unknown token ids for this processor/model version; skip strict precheck.
+            continue
+
+        clean_counts = _modality_token_count_per_row(clean_inputs["input_ids"], ids)
+        corrupt_counts = _modality_token_count_per_row(corrupt_inputs["input_ids"], ids)
+        if clean_counts != corrupt_counts:
+            raise ValueError(
+                f"{modality} placeholder token counts must match between clean and corrupt: "
+                f"clean={clean_counts}, corrupt={corrupt_counts}"
+            )
+        if any(count == 0 for count in clean_counts):
+            raise ValueError(
+                f"{modality} modality features present but placeholder tokens missing in input_ids: "
+                f"counts={clean_counts}"
+            )
+
+        meta_counts[modality] = {
+            "clean": clean_counts,
+            "corrupt": corrupt_counts,
+        }
+
+    return meta_counts
+
+
+def _canonicalize_processor_inputs(samples: Dict[str, Any]) -> Dict[str, Any]:
+    normalized = dict(samples)
+    if "image" in normalized and "images" not in normalized:
+        normalized["images"] = normalized.pop("image")
+    if "video" in normalized and "videos" not in normalized:
+        normalized["videos"] = normalized.pop("video")
+    return normalized
 
 
 def _normalize_modal_samples(samples: Any) -> Dict[str, Any]:
@@ -109,7 +214,7 @@ def _prepare_processor_inputs(
     *,
     processor_kwargs: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    processor_inputs = _normalize_modal_samples(samples)
+    processor_inputs = _canonicalize_processor_inputs(_normalize_modal_samples(samples))
     if processor_kwargs is None:
         return processor_inputs
     # Keep caller kwargs overriding normalized sample keys when explicitly set.
@@ -168,6 +273,13 @@ class HFProcessorAdapter:
             raise ValueError("Prepared inputs must include attention_mask")
 
         meta_dict: Dict[str, Any] = dict(meta or {})
+        placeholder_counts = _precheck_modality_placeholders(
+            clean_inputs,
+            corrupt_inputs,
+            processor=self.processor,
+        )
+        if len(placeholder_counts) > 0:
+            meta_dict.setdefault("modality_token_counts", placeholder_counts)
         image_token_id = _find_image_token_id(self.processor)
         if image_token_id is not None and "input_ids" in clean_inputs and "input_ids" in corrupt_inputs:
             meta_dict.setdefault("clean_modality_spans", _image_token_spans(clean_inputs["input_ids"], image_token_id))

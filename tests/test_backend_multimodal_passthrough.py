@@ -31,6 +31,9 @@ class TinyQwen2VLLikeModel(torch.nn.Module):
         inputs_embeds=None,
         pixel_values=None,
         image_grid_thw=None,
+        pixel_values_videos=None,
+        video_grid_thw=None,
+        input_features=None,
         use_cache=False,
         return_dict=True,
         **kwargs,
@@ -38,6 +41,9 @@ class TinyQwen2VLLikeModel(torch.nn.Module):
         self.last_seen = {
             "pixel_values": pixel_values,
             "image_grid_thw": image_grid_thw,
+            "pixel_values_videos": pixel_values_videos,
+            "video_grid_thw": video_grid_thw,
+            "input_features": input_features,
             "extra_keys": sorted(kwargs.keys()),
         }
         return self.language_model(
@@ -63,11 +69,17 @@ def test_hf_backend_accepts_language_model_wrapper_and_multimodal_kwargs():
             "attention_mask": torch.tensor([[1, 1, 1]], dtype=torch.long),
             "pixel_values": torch.randn(1, 3, 2, 2),
             "image_grid_thw": torch.tensor([[1, 1, 1]], dtype=torch.long),
+            "pixel_values_videos": torch.randn(1, 3, 2, 2),
+            "video_grid_thw": torch.tensor([[1, 1, 1]], dtype=torch.long),
+            "input_features": torch.randn(1, 8, 16),
         }
     )
 
     assert "pixel_values" in run_inputs.model_kwargs
     assert "image_grid_thw" in run_inputs.model_kwargs
+    assert "pixel_values_videos" in run_inputs.model_kwargs
+    assert "video_grid_thw" in run_inputs.model_kwargs
+    assert "input_features" in run_inputs.model_kwargs
 
     with torch.inference_mode():
         logits = backend.forward(run_inputs)
@@ -75,3 +87,6 @@ def test_hf_backend_accepts_language_model_wrapper_and_multimodal_kwargs():
     assert logits.shape == (1, 3, model.config.vocab_size)
     assert model.last_seen["pixel_values"] is not None
     assert model.last_seen["image_grid_thw"] is not None
+    assert model.last_seen["pixel_values_videos"] is not None
+    assert model.last_seen["video_grid_thw"] is not None
+    assert model.last_seen["input_features"] is not None
