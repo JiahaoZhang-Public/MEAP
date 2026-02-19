@@ -300,6 +300,12 @@ class HFLLMBackend:
         return sorted(self._hook_targets.keys())
 
     def _resolve_decoder_backbone(self, model: torch.nn.Module) -> Tuple[torch.nn.Module, str]:
+        if hasattr(model, "language_model"):
+            language_model = model.language_model
+            if hasattr(language_model, "model") and hasattr(language_model.model, "layers"):
+                return language_model.model, "llama_like"
+            if hasattr(language_model, "transformer") and hasattr(language_model.transformer, "h"):
+                return language_model.transformer, "gpt2_like"
         if hasattr(model, "model") and hasattr(model.model, "layers"):
             return model.model, "llama_like"
         if hasattr(model, "transformer") and hasattr(model.transformer, "h"):
@@ -492,9 +498,17 @@ class HFLLMBackend:
             )
 
         model_kwargs: Dict[str, Any] = {}
-        for optional_kwarg in ("position_ids", "cache_position"):
-            if optional_kwarg in inputs:
-                model_kwargs[optional_kwarg] = inputs[optional_kwarg].to(device=device)
+        core_keys = {"input_ids", "tokens", "inputs_embeds", "attention_mask"}
+        for key, value in inputs.items():
+            if key in core_keys:
+                continue
+            if torch.is_tensor(value):
+                if torch.is_floating_point(value):
+                    model_kwargs[key] = value.to(device=device, dtype=dtype)
+                else:
+                    model_kwargs[key] = value.to(device=device)
+            else:
+                model_kwargs[key] = value
 
         return BackendRunInputs(
             input_ids=input_ids,
