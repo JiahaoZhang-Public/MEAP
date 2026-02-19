@@ -1,7 +1,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, Iterator, Optional, Sequence, Tuple, Union
+from typing import (
+    Any,
+    Dict,
+    Iterable,
+    Iterator,
+    Mapping,
+    Optional,
+    Protocol,
+    Sequence,
+    Tuple,
+    Union,
+)
 
 import torch
 from torch import Tensor
@@ -23,7 +34,41 @@ class PreparedBatch:
 
 
 LegacyTextBatch = Tuple[Sequence[str], Sequence[str], Any]
-BatchLike = Union[PreparedBatch, LegacyTextBatch]
+
+
+@dataclass
+class RawPairBatch:
+    """Raw clean/corrupt batch for processor-based preparation."""
+
+    clean: Any
+    corrupt: Any
+    labels: Any
+    meta: Optional[Dict[str, Any]] = None
+
+
+@dataclass
+class DictPairBatch:
+    """Dict-style alias for dataloader output compatibility."""
+
+    clean: Any
+    corrupt: Any
+    labels: Any
+    meta: Optional[Dict[str, Any]] = None
+
+
+class PairBatchPreparer(Protocol):
+    def prepare_batch(
+        self,
+        clean_samples: Any,
+        corrupt_samples: Any,
+        labels: Any,
+        *,
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> PreparedBatch:
+        ...
+
+
+BatchLike = Union[PreparedBatch, LegacyTextBatch, RawPairBatch, DictPairBatch, Mapping[str, Any]]
 
 
 def _sequence_shape(inputs: Dict[str, Tensor]) -> Tuple[int, int]:
@@ -202,29 +247,71 @@ def iter_prepared_batches(
     batches: Iterable[BatchLike],
     *,
     max_length: Optional[int] = None,
+    pair_batch_preparer: Optional[PairBatchPreparer] = None,
 ) -> Iterator[PreparedBatch]:
+    def _prepare_raw_pair(clean: Any, corrupt: Any, labels: Any, meta: Optional[Dict[str, Any]] = None):
+        if pair_batch_preparer is None:
+            raise TypeError(
+                "Raw clean/corrupt batches require a pair_batch_preparer. "
+                "Pass HFProcessorAdapter(...) to iter_prepared_batches(..., pair_batch_preparer=...)."
+            )
+        return pair_batch_preparer.prepare_batch(clean, corrupt, labels, meta=meta)
+
     for batch in batches:
         if isinstance(batch, PreparedBatch):
             validate_prepared_batch(batch)
             yield batch
             continue
 
-        if not isinstance(batch, tuple) or len(batch) != 3:
+        if isinstance(batch, RawPairBatch):
+            yield _prepare_raw_pair(batch.clean, batch.corrupt, batch.labels, meta=batch.meta)
+            continue
+
+        if isinstance(batch, DictPairBatch):
+            yield _prepare_raw_pair(batch.clean, batch.corrupt, batch.labels, meta=batch.meta)
+            continue
+
+        if isinstance(batch, Mapping):
+            required = {"clean", "corrupt", "labels"}
+            if required.issubset(batch.keys()):
+                yield _prepare_raw_pair(
+                    batch["clean"],
+                    batch["corrupt"],
+                    batch["labels"],
+                    meta=batch.get("meta"),
+                )
+                continue
             raise TypeError(
-                "Expected PreparedBatch or legacy (clean, corrupt, labels) tuple from batch iterable"
+                "Mapping batches must include keys {'clean', 'corrupt', 'labels'} "
+                "(optional 'meta')."
             )
 
-        if tokenization_model is None:
+        if not isinstance(batch, tuple) or len(batch) not in (3, 4):
             raise TypeError(
-                "Legacy text tuple batches require a tokenization-capable model/backend. "
-                "Provide PreparedBatch entries or pass a TLensBackend-backed model."
+                "Expected one of: PreparedBatch, RawPairBatch, dict(clean/corrupt/labels), "
+                "or tuple(clean, corrupt, labels[, meta])."
             )
 
-        clean_text, corrupt_text, labels = batch
-        yield text_batch_to_prepared_batch(
-            tokenization_model,
-            clean_text,
-            corrupt_text,
-            labels,
-            max_length=max_length,
-        )
+        clean_data, corrupt_data, labels = batch[:3]
+        meta = batch[3] if len(batch) == 4 else None
+
+        if (
+            tokenization_model is not None
+            and isinstance(clean_data, Sequence)
+            and isinstance(corrupt_data, Sequence)
+            and not isinstance(clean_data, (str, bytes))
+            and not isinstance(corrupt_data, (str, bytes))
+            and all(isinstance(x, str) for x in clean_data)
+            and all(isinstance(x, str) for x in corrupt_data)
+        ):
+            yield text_batch_to_prepared_batch(
+                tokenization_model,
+                clean_data,
+                corrupt_data,
+                labels,
+                max_length=max_length,
+                meta=meta,
+            )
+            continue
+
+        yield _prepare_raw_pair(clean_data, corrupt_data, labels, meta=meta)
