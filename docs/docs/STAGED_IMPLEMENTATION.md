@@ -68,11 +68,15 @@ This document records the staged rollout requested for backend migration and mul
 
 ### Implemented
 - Added script:
-  - `scripts/test_stage_matrix.py`
+  - `scripts/smoke_hf_matrix.py`
+  - `scripts/test_stage_matrix.py` (wrapper now calls `smoke_hf_matrix.py`)
 - Added tests:
   - `tests/test_input_layer.py`
   - `tests/test_backend_multimodal_passthrough.py`
   - `tests/test_api_high_level.py`
+  - `tests/test_smoke_matrix_script.py`
+- Added model support documentation:
+  - `docs/docs/SUPPORTED_MODELS.md`
 - Added this documentation file.
 
 ### Acceptance
@@ -85,6 +89,6 @@ This document records the staged rollout requested for backend migration and mul
 ```bash
 ruff check multimodal_lm_eap_ig tests scripts
 pytest -q
-python scripts/test_backend_unified.py --levels model,method --models gpt2-small,Qwen/Qwen2-0.5B --methods smoke,EAP-IG-inputs
-python scripts/test_stage_matrix.py --run-qwen2-vl-smoke --device cuda --dtype bfloat16
+python scripts/smoke_hf_matrix.py --text-models gpt2,distilgpt2,facebook/opt-125m --multimodal-models Qwen/Qwen2-VL-2B --device cpu --dtype bfloat16
+python scripts/test_stage_matrix.py --text-models gpt2 --multimodal-models Qwen/Qwen2-VL-2B --device cpu --dtype bfloat16
 ```
