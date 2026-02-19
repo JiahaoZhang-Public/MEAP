@@ -34,10 +34,10 @@ def _resolve_backend_for_method(
     method: str,
 ) -> ModelBackend:
     backend_obj = resolve_backend(model, backend)
-    if is_hf_backend(backend_obj) and method != "smoke":
+    if is_hf_backend(backend_obj) and method not in {"smoke", "EAP-IG-inputs"}:
         raise RuntimeError(
-            "HF backend currently supports `smoke` only in this stage; "
-            "use TLens backend for gradient-based attribution methods."
+            "HF backend currently supports `smoke` and `EAP-IG-inputs` only in this stage; "
+            "use TLens backend for other gradient-based attribution methods."
         )
     return backend_obj
 
@@ -307,14 +307,18 @@ def get_scores_eap_ig(
             clean_logits = forward_with_hooks(backend_obj, clean_inputs, fwd_hooks=fwd_hooks_clean)
             input_acts_clean = input_acts_corrupt - activation_difference[:, :, input_idx]
 
-        for step in range(1, steps + 1):
+        total_steps = 0
+        for step in range(0, steps):
             total_steps += 1
             alpha = step / steps
 
             def input_interpolation_hook(activations, hook, interpolation_alpha: float = alpha):
-                return input_acts_corrupt + interpolation_alpha * (input_acts_clean - input_acts_corrupt)
+                new_input = input_acts_corrupt + interpolation_alpha * (
+                    input_acts_clean - input_acts_corrupt
+                )
+                new_input.requires_grad_(True)
+                return new_input
 
-            backend_obj.zero_grad()
             logits = forward_with_hooks(
                 backend_obj,
                 clean_inputs,

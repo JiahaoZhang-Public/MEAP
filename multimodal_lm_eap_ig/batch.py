@@ -126,7 +126,14 @@ def _tokenize_text_batch(
     if old_n_ctx is not None:
         model.cfg.n_ctx = old_n_ctx
 
-    attention_mask = _build_attention_mask_from_tokens(tokens, model.tokenizer)
+    attention_mask = None
+    try:
+        # Match vendor/eap-ig semantics exactly for BOS/padding handling.
+        from transformer_lens.utils import get_attention_mask
+
+        attention_mask = get_attention_mask(model.tokenizer, tokens, prepend_bos=True)
+    except Exception:
+        attention_mask = _build_attention_mask_from_tokens(tokens, model.tokenizer)
     return tokens, attention_mask
 
 

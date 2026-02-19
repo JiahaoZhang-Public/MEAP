@@ -91,6 +91,7 @@ class ModelBackend(Protocol):
 class _HookTarget:
     module: torch.nn.Module
     mode: str  # 'forward' or 'pre'
+    output_index: Optional[int] = None
 
 
 def _parse_torch_dtype(dtype: Any) -> torch.dtype:
@@ -273,10 +274,14 @@ class HFLLMBackend:
             self.model.to(**cast_kwargs)
 
         self._tokenizer = tokenizer
-        self._base_model = self._resolve_decoder_backbone(self.model)
-        self._layers = self._resolve_decoder_layers(self._base_model)
+        self._base_model, self._arch_kind = self._resolve_decoder_backbone(self.model)
+        self._layers, self._layer_accessors = self._resolve_decoder_layers(
+            self._base_model,
+            self._arch_kind,
+        )
         self._hook_targets = self._build_hook_targets()
         self._config = self._normalize_config(self.model)
+        self._ln1_residual_cache: Dict[int, Tensor] = {}
 
     @property
     def config(self) -> BackendConfig:
@@ -294,48 +299,89 @@ class HFLLMBackend:
     def supported_hook_names(self) -> List[str]:
         return sorted(self._hook_targets.keys())
 
-    def _resolve_decoder_backbone(self, model: torch.nn.Module) -> torch.nn.Module:
+    def _resolve_decoder_backbone(self, model: torch.nn.Module) -> Tuple[torch.nn.Module, str]:
         if hasattr(model, "model") and hasattr(model.model, "layers"):
-            return model.model
+            return model.model, "llama_like"
+        if hasattr(model, "transformer") and hasattr(model.transformer, "h"):
+            return model.transformer, "gpt2_like"
 
         raise ValueError(
             "Unsupported HF architecture for HFLLMBackend. Expected decoder backbone with "
-            "attributes: model.layers, model.embed_tokens, per-layer self_attn/mlp."
+            "attributes for either LLaMA-like models (model.layers) or GPT2-like models "
+            "(transformer.h), with per-layer attention and MLP modules."
         )
 
-    def _resolve_decoder_layers(self, base_model: torch.nn.Module) -> List[torch.nn.Module]:
-        layers = getattr(base_model, "layers", None)
-        if layers is None:
-            raise ValueError("Unsupported HF architecture: missing model.layers")
-        if len(layers) == 0:
-            raise ValueError("Unsupported HF architecture: model.layers is empty")
+    def _resolve_decoder_layers(
+        self,
+        base_model: torch.nn.Module,
+        arch_kind: str,
+    ) -> Tuple[List[torch.nn.Module], Dict[str, str]]:
+        if arch_kind == "llama_like":
+            layers = getattr(base_model, "layers", None)
+            accessors = {
+                "attn": "self_attn",
+                "mlp": "mlp",
+                "ln1": "input_layernorm",
+                "ln2": "post_attention_layernorm",
+            }
+            required_attn_attrs = ("q_proj", "k_proj", "v_proj")
+        elif arch_kind == "gpt2_like":
+            layers = getattr(base_model, "h", None)
+            accessors = {
+                "attn": "attn",
+                "mlp": "mlp",
+                "ln1": "ln_1",
+                "ln2": "ln_2",
+            }
+            required_attn_attrs = ("c_attn",)
+        else:
+            raise ValueError(f"Unsupported architecture kind: {arch_kind}")
 
-        required_layer_attrs = ("self_attn", "mlp", "input_layernorm", "post_attention_layernorm")
-        required_attn_attrs = ("q_proj", "k_proj", "v_proj")
+        if layers is None:
+            raise ValueError("Unsupported HF architecture: missing decoder layer stack")
+        if len(layers) == 0:
+            raise ValueError("Unsupported HF architecture: decoder layer stack is empty")
 
         for idx, layer in enumerate(layers):
-            missing = [attr for attr in required_layer_attrs if not hasattr(layer, attr)]
+            missing = [attr for attr in accessors.values() if not hasattr(layer, attr)]
             if missing:
                 raise ValueError(
                     "Unsupported HF architecture: each decoder layer must expose self_attn/mlp and "
                     f"norms. Layer {idx} missing: {missing}"
                 )
-            attn = layer.self_attn
+            attn = getattr(layer, accessors["attn"])
             missing_attn = [attr for attr in required_attn_attrs if not hasattr(attn, attr)]
             if missing_attn:
                 raise ValueError(
-                    "Unsupported HF architecture: self_attn must expose q_proj/k_proj/v_proj. "
-                    f"Layer {idx} missing: {missing_attn}"
+                    "Unsupported HF architecture: attention modules missing required projection "
+                    f"attributes for {arch_kind}. Layer {idx} missing: {missing_attn}"
                 )
-        return list(layers)
+        return list(layers), accessors
 
     def _normalize_config(self, model: torch.nn.Module) -> BackendConfig:
         cfg = model.config
-        missing_cfg = [
-            key
-            for key in ("hidden_size", "num_hidden_layers", "num_attention_heads")
-            if not hasattr(cfg, key)
-        ]
+        d_model = (
+            getattr(cfg, "hidden_size", None)
+            if getattr(cfg, "hidden_size", None) is not None
+            else getattr(cfg, "n_embd", None)
+        )
+        n_layers = (
+            getattr(cfg, "num_hidden_layers", None)
+            if getattr(cfg, "num_hidden_layers", None) is not None
+            else getattr(cfg, "n_layer", None)
+        )
+        n_heads = (
+            getattr(cfg, "num_attention_heads", None)
+            if getattr(cfg, "num_attention_heads", None) is not None
+            else getattr(cfg, "n_head", None)
+        )
+        missing_cfg = []
+        if d_model is None:
+            missing_cfg.append("hidden_size/n_embd")
+        if n_layers is None:
+            missing_cfg.append("num_hidden_layers/n_layer")
+        if n_heads is None:
+            missing_cfg.append("num_attention_heads/n_head")
         if missing_cfg:
             raise ValueError(
                 "Unsupported HF config for HFLLMBackend. Missing fields: "
@@ -348,9 +394,9 @@ class HFLLMBackend:
         return BackendConfig(
             device=device,
             dtype=model_dtype,
-            d_model=int(cfg.hidden_size),
-            n_layers=int(cfg.num_hidden_layers),
-            n_heads=int(cfg.num_attention_heads),
+            d_model=int(d_model),
+            n_layers=int(n_layers),
+            n_heads=int(n_heads),
             parallel_attn_mlp=False,
             n_key_value_heads=(None if n_key_value_heads is None else int(n_key_value_heads)),
             use_attn_result=True,
@@ -360,23 +406,50 @@ class HFLLMBackend:
         )
 
     def _build_hook_targets(self) -> Dict[str, _HookTarget]:
-        if not hasattr(self._base_model, "embed_tokens"):
-            raise ValueError("Unsupported HF architecture: missing model.embed_tokens")
+        if self._arch_kind == "llama_like":
+            embed_module = getattr(self._base_model, "embed_tokens", None)
+            resid_module = getattr(self._base_model, "norm", self._layers[-1])
+        else:
+            embed_module = getattr(self._base_model, "wte", None)
+            resid_module = getattr(self._base_model, "ln_f", self._layers[-1])
 
-        targets: Dict[str, _HookTarget] = {
-            "hook_embed": _HookTarget(self._base_model.embed_tokens, "forward"),
-        }
+        if embed_module is None:
+            raise ValueError("Unsupported HF architecture: missing token embedding module")
 
+        targets: Dict[str, _HookTarget] = {"hook_embed": _HookTarget(embed_module, "forward")}
+
+        attn_attr = self._layer_accessors["attn"]
+        mlp_attr = self._layer_accessors["mlp"]
         for layer_idx, layer in enumerate(self._layers):
-            targets[f"blocks.{layer_idx}.attn.hook_result"] = _HookTarget(layer.self_attn, "forward")
-            targets[f"blocks.{layer_idx}.hook_q_input"] = _HookTarget(layer.self_attn.q_proj, "pre")
-            targets[f"blocks.{layer_idx}.hook_k_input"] = _HookTarget(layer.self_attn.k_proj, "pre")
-            targets[f"blocks.{layer_idx}.hook_v_input"] = _HookTarget(layer.self_attn.v_proj, "pre")
-            targets[f"blocks.{layer_idx}.hook_mlp_out"] = _HookTarget(layer.mlp, "forward")
-            targets[f"blocks.{layer_idx}.hook_mlp_in"] = _HookTarget(layer.mlp, "pre")
+            attn_module = getattr(layer, attn_attr)
+            mlp_module = getattr(layer, mlp_attr)
+            ln2_module = getattr(layer, self._layer_accessors["ln2"])
 
-        resid_module = getattr(self._base_model, "norm", self._layers[-1])
-        targets[f"blocks.{len(self._layers) - 1}.hook_resid_post"] = _HookTarget(resid_module, "pre")
+            if self._arch_kind == "llama_like":
+                attn_result_module = attn_module.o_proj
+            else:
+                attn_result_module = attn_module.c_proj
+            targets[f"blocks.{layer_idx}.attn.hook_result"] = _HookTarget(
+                attn_result_module,
+                "pre",
+            )
+            if self._arch_kind == "llama_like":
+                targets[f"blocks.{layer_idx}.hook_q_input"] = _HookTarget(attn_module.q_proj, "forward")
+                targets[f"blocks.{layer_idx}.hook_k_input"] = _HookTarget(attn_module.k_proj, "forward")
+                targets[f"blocks.{layer_idx}.hook_v_input"] = _HookTarget(attn_module.v_proj, "forward")
+            else:
+                # GPT2-style fused qkv projection; map q/k/v placeholders to shared c_attn input.
+                targets[f"blocks.{layer_idx}.hook_q_input"] = _HookTarget(attn_module.c_attn, "forward")
+                targets[f"blocks.{layer_idx}.hook_k_input"] = _HookTarget(attn_module.c_attn, "forward")
+                targets[f"blocks.{layer_idx}.hook_v_input"] = _HookTarget(attn_module.c_attn, "forward")
+
+            targets[f"blocks.{layer_idx}.hook_mlp_out"] = _HookTarget(mlp_module, "forward")
+            targets[f"blocks.{layer_idx}.hook_mlp_in"] = _HookTarget(ln2_module, "forward")
+
+        targets[f"blocks.{len(self._layers) - 1}.hook_resid_post"] = _HookTarget(
+            resid_module,
+            "pre",
+        )
 
         return targets
 
@@ -431,29 +504,412 @@ class HFLLMBackend:
             model_kwargs=model_kwargs,
         )
 
-    def _make_forward_hook(self, name: str, hook_fn: Callable):
+    def _make_forward_hook(self, name: str, hook_fn: Callable, target: _HookTarget):
+        return self._make_composed_forward_hook(name, target, [hook_fn], [])
+
+    def _apply_forward_hook_chain(
+        self,
+        activation: Tensor,
+        hook_ctx: SimpleNamespace,
+        fwd_hook_fns: List[Callable],
+    ) -> Tensor:
+        updated = activation
+        for hook_fn in fwd_hook_fns:
+            maybe_output = hook_fn(updated, hook_ctx)
+            if maybe_output is not None:
+                updated = maybe_output
+        return updated
+
+    def _attach_backward_hook_chain(
+        self,
+        activation: Tensor,
+        hook_ctx: SimpleNamespace,
+        bwd_hook_fns: List[Callable],
+    ) -> None:
+        if not bwd_hook_fns:
+            return
+        if not torch.is_tensor(activation):
+            raise RuntimeError(
+                f"Backward hooks for {hook_ctx.name} require tensor activation, got {type(activation)}"
+            )
+        if not activation.requires_grad:
+            return
+
+        def _bwd_chain(grad: Tensor) -> Tensor:
+            updated = grad
+            for hook_fn in bwd_hook_fns:
+                maybe_grad = hook_fn(updated, hook_ctx)
+                if maybe_grad is not None:
+                    updated = maybe_grad
+            return updated
+
+        activation.register_hook(_bwd_chain)
+
+    def _make_composed_forward_hook(
+        self,
+        name: str,
+        target: _HookTarget,
+        fwd_hook_fns: List[Callable],
+        bwd_hook_fns: List[Callable],
+    ):
         hook_ctx = SimpleNamespace(name=name)
 
         def _wrapped(module, inputs, output):
-            maybe_output = hook_fn(output, hook_ctx)
-            if maybe_output is not None:
-                return maybe_output
-            return output
+            if name.endswith(".hook_mlp_in"):
+                if len(inputs) == 0:
+                    raise RuntimeError(f"{name} expects at least one module input tensor")
+                ln_input = inputs[0]
+                updated = self._apply_forward_hook_chain(ln_input, hook_ctx, fwd_hook_fns)
+                if updated is not ln_input:
+                    raise RuntimeError(
+                        "HFLLMBackend hook_mlp_in does not support activation replacement"
+                    )
+                self._attach_mlp_in_backward_hook_from_ln_output(
+                    ln_output=output,
+                    ln_input=ln_input,
+                    ln_module=module,
+                    hook_name=name,
+                    hook_ctx=hook_ctx,
+                    bwd_hook_fns=bwd_hook_fns,
+                )
+                return output
+
+            if (
+                name.endswith(".hook_q_input")
+                or name.endswith(".hook_k_input")
+                or name.endswith(".hook_v_input")
+            ):
+                if len(inputs) == 0:
+                    raise RuntimeError(f"{name} expects at least one module input tensor")
+                projected = self._project_qkv_input_for_hook(inputs[0], name)
+                updated = self._apply_forward_hook_chain(projected, hook_ctx, fwd_hook_fns)
+                if updated is not projected:
+                    raise RuntimeError(
+                        "HFLLMBackend q/k/v input hook does not support activation replacement"
+                    )
+                self._attach_qkv_backward_hook_from_projection_output(
+                    projection_output=output,
+                    projection_module=module,
+                    hook_name=name,
+                    hook_ctx=hook_ctx,
+                    bwd_hook_fns=bwd_hook_fns,
+                )
+                return output
+
+            if target.output_index is None:
+                updated = self._apply_forward_hook_chain(output, hook_ctx, fwd_hook_fns)
+                self._attach_backward_hook_chain(updated, hook_ctx, bwd_hook_fns)
+                return updated
+
+            if not isinstance(output, (tuple, list)):
+                raise RuntimeError(
+                    f"Hook point {name} expected tuple/list output for index "
+                    f"{target.output_index}, got {type(output)}"
+                )
+            if not (0 <= target.output_index < len(output)):
+                raise RuntimeError(
+                    f"Hook point {name} output_index={target.output_index} out of range "
+                    f"for output length {len(output)}"
+                )
+
+            selected = output[target.output_index]
+            updated = self._apply_forward_hook_chain(selected, hook_ctx, fwd_hook_fns)
+            self._attach_backward_hook_chain(updated, hook_ctx, bwd_hook_fns)
+            if updated is selected:
+                return output
+
+            output_items = list(output)
+            output_items[target.output_index] = updated
+            if isinstance(output, tuple):
+                return tuple(output_items)
+            return output_items
 
         return _wrapped
 
-    def _make_pre_hook(self, name: str, hook_fn: Callable):
+    def _make_composed_pre_hook(
+        self,
+        name: str,
+        fwd_hook_fns: List[Callable],
+        bwd_hook_fns: List[Callable],
+    ):
         hook_ctx = SimpleNamespace(name=name)
 
         def _wrapped(module, inputs):
             if len(inputs) == 0:
                 return None
-            maybe_input = hook_fn(inputs[0], hook_ctx)
-            if maybe_input is None:
+
+            if name.endswith(".attn.hook_result"):
+                current = inputs[0]
+                projected = self._project_attention_result_from_proj_input(current, module, name)
+                updated = self._apply_forward_hook_chain(projected, hook_ctx, fwd_hook_fns)
+                self._attach_backward_hook_chain(updated, hook_ctx, bwd_hook_fns)
+                if updated is not projected:
+                    raise RuntimeError(
+                        "HFLLMBackend attn.hook_result hook does not support activation replacement"
+                    )
                 return None
-            return (maybe_input, *inputs[1:])
+
+            if (
+                name.endswith(".hook_q_input")
+                or name.endswith(".hook_k_input")
+                or name.endswith(".hook_v_input")
+            ):
+                raise RuntimeError(f"{name} expected forward hook target, got pre-hook target")
+
+            current = inputs[0]
+            updated = self._apply_forward_hook_chain(current, hook_ctx, fwd_hook_fns)
+            self._attach_backward_hook_chain(updated, hook_ctx, bwd_hook_fns)
+            if updated is current:
+                return None
+            return (updated, *inputs[1:])
 
         return _wrapped
+
+    def _project_attention_result_from_proj_input(
+        self,
+        projection_input: Tensor,
+        projection_module: torch.nn.Module,
+        hook_name: str,
+    ) -> Tensor:
+        if projection_input.ndim != 3:
+            raise RuntimeError(
+                f"{hook_name} expected rank-3 projection input [batch, seq, d_model], "
+                f"got {tuple(projection_input.shape)}"
+            )
+        if not hasattr(projection_module, "weight"):
+            raise RuntimeError(f"{hook_name} projection module missing weight parameter")
+
+        weight = projection_module.weight
+        if weight.ndim != 2:
+            raise RuntimeError(f"{hook_name} projection weight must be rank-2, got {weight.ndim}")
+
+        d_model = int(projection_input.shape[-1])
+        if d_model % self._config.n_heads != 0:
+            raise RuntimeError(
+                f"{hook_name} cannot split d_model={d_model} into n_heads={self._config.n_heads}"
+            )
+        d_head = d_model // self._config.n_heads
+        if int(weight.shape[1]) != d_model:
+            if not (
+                self._arch_kind == "gpt2_like"
+                and projection_module.__class__.__name__ == "Conv1D"
+                and int(weight.shape[0]) == d_model
+                and int(weight.shape[1]) == d_model
+            ):
+                raise RuntimeError(
+                    f"{hook_name} projection weight input dim mismatch: "
+                    f"weight_in={int(weight.shape[1])}, d_model={d_model}"
+                )
+
+        projection_heads = projection_input.view(
+            projection_input.shape[0],
+            projection_input.shape[1],
+            self._config.n_heads,
+            d_head,
+        )
+        if self._arch_kind == "gpt2_like" and projection_module.__class__.__name__ == "Conv1D":
+            weight_heads = weight.view(self._config.n_heads, d_head, d_model)
+            return torch.einsum("bphd,hdm->bphm", projection_heads, weight_heads)
+
+        weight_heads = weight.view(int(weight.shape[0]), self._config.n_heads, d_head)
+        return torch.einsum("bphd,ohd->bpho", projection_heads, weight_heads)
+
+    def _project_qkv_input_for_hook(
+        self,
+        qkv_input: Tensor,
+        hook_name: str,
+    ) -> Tensor:
+        if qkv_input.ndim != 3:
+            raise RuntimeError(
+                f"{hook_name} expected rank-3 projection input [batch, seq, d_model], "
+                f"got {tuple(qkv_input.shape)}"
+            )
+        return qkv_input.unsqueeze(2).expand(
+            qkv_input.shape[0],
+            qkv_input.shape[1],
+            self._config.n_heads,
+            qkv_input.shape[2],
+        )
+
+    def _qkv_letter_from_hook_name(self, hook_name: str) -> str:
+        if hook_name.endswith(".hook_q_input"):
+            return "q"
+        if hook_name.endswith(".hook_k_input"):
+            return "k"
+        if hook_name.endswith(".hook_v_input"):
+            return "v"
+        raise ValueError(f"Cannot infer qkv letter from hook name: {hook_name}")
+
+    def _layer_index_from_hook_name(self, hook_name: str) -> int:
+        parts = hook_name.split(".")
+        if len(parts) < 2 or parts[0] != "blocks":
+            raise ValueError(f"Cannot infer layer index from hook name: {hook_name}")
+        return int(parts[1])
+
+    def _layernorm_input_grads(
+        self,
+        grads_wrt_ln_out: Tensor,
+        ln_input: Tensor,
+        layernorm_module: torch.nn.Module,
+    ) -> Tensor:
+        if not isinstance(layernorm_module, torch.nn.LayerNorm):
+            return grads_wrt_ln_out
+
+        ln_input_fp = ln_input.float()
+        grads_fp = grads_wrt_ln_out.float()
+        weight = layernorm_module.weight.float()
+        eps = float(layernorm_module.eps)
+        n_dim = ln_input_fp.shape[-1]
+
+        mean = ln_input_fp.mean(dim=-1, keepdim=True)
+        var = ((ln_input_fp - mean) ** 2).mean(dim=-1, keepdim=True)
+        std = torch.sqrt(var + eps)
+        xhat = (ln_input_fp - mean) / std
+
+        gw = grads_fp * weight.view(1, 1, 1, -1)
+        sum_gw = gw.sum(dim=-1, keepdim=True)
+        sum_gw_xhat = (gw * xhat.unsqueeze(2)).sum(dim=-1, keepdim=True)
+        grads_ln_in = (1.0 / n_dim) / std.unsqueeze(2) * (
+            n_dim * gw - sum_gw - xhat.unsqueeze(2) * sum_gw_xhat
+        )
+        return grads_ln_in.to(dtype=grads_wrt_ln_out.dtype)
+
+    def _project_qkv_gradient_to_input_heads(
+        self,
+        grad_output: Tensor,
+        projection_module: torch.nn.Module,
+        hook_name: str,
+    ) -> Tensor:
+        if grad_output.ndim != 3:
+            raise RuntimeError(
+                f"{hook_name} expected rank-3 projection output gradients [batch, seq, dim], "
+                f"got {tuple(grad_output.shape)}"
+            )
+        if not hasattr(projection_module, "weight"):
+            raise RuntimeError(f"{hook_name} projection module missing weight parameter")
+
+        weight = projection_module.weight
+        if weight.ndim != 2:
+            raise RuntimeError(f"{hook_name} projection weight must be rank-2, got {weight.ndim}")
+
+        qkv_letter = self._qkv_letter_from_hook_name(hook_name)
+        qkv_index = "qkv".index(qkv_letter)
+        d_model = self._config.d_model
+        d_head = d_model // self._config.n_heads
+
+        # GPT2 Conv1D-style fused qkv projection: weight shape [in, 3*d_model].
+        if int(weight.shape[0]) == d_model and int(weight.shape[1]) == 3 * d_model:
+            start = qkv_index * d_model
+            end = (qkv_index + 1) * d_model
+            grad_chunk = grad_output[:, :, start:end]
+            grad_heads = grad_chunk.view(
+                grad_chunk.shape[0],
+                grad_chunk.shape[1],
+                self._config.n_heads,
+                d_head,
+            )
+            weight_chunk = weight[:, start:end].view(d_model, self._config.n_heads, d_head)
+            projected = torch.einsum("bphd,mhd->bphm", grad_heads, weight_chunk)
+        else:
+            # Linear projection case: weight shape [out, in].
+            out_dim = int(weight.shape[0])
+            in_dim = int(weight.shape[1])
+            if in_dim != d_model:
+                raise RuntimeError(
+                    f"{hook_name} projection input dim mismatch: weight_in={in_dim}, expected={d_model}"
+                )
+            if out_dim % d_head != 0:
+                raise RuntimeError(
+                    f"{hook_name} projection output dim {out_dim} is not divisible by d_head={d_head}"
+                )
+            out_heads = out_dim // d_head
+            grad_heads = grad_output.view(
+                grad_output.shape[0],
+                grad_output.shape[1],
+                out_heads,
+                d_head,
+            )
+            weight_heads = weight.view(out_heads, d_head, d_model)
+            per_head_grads = torch.einsum("bphd,hdm->bphm", grad_heads, weight_heads)
+            if out_heads == self._config.n_heads:
+                projected = per_head_grads
+            else:
+                if self._config.n_heads % out_heads != 0:
+                    raise RuntimeError(
+                        f"{hook_name} cannot broadcast out_heads={out_heads} to n_heads={self._config.n_heads}"
+                    )
+                repeat_factor = self._config.n_heads // out_heads
+                projected = per_head_grads.repeat_interleave(repeat_factor, dim=2)
+
+        layer_idx = self._layer_index_from_hook_name(hook_name)
+        if layer_idx in self._ln1_residual_cache:
+            ln_input = self._ln1_residual_cache[layer_idx]
+            ln1_module = getattr(self._layers[layer_idx], self._layer_accessors["ln1"])
+            return self._layernorm_input_grads(projected, ln_input, ln1_module)
+        return projected
+
+    def _attach_qkv_backward_hook_from_projection_output(
+        self,
+        projection_output: Tensor,
+        projection_module: torch.nn.Module,
+        hook_name: str,
+        hook_ctx: SimpleNamespace,
+        bwd_hook_fns: List[Callable],
+    ) -> None:
+        if not bwd_hook_fns:
+            return
+        if not torch.is_tensor(projection_output):
+            raise RuntimeError(
+                f"{hook_name} backward hooks require tensor projection output, got {type(projection_output)}"
+            )
+        if not projection_output.requires_grad:
+            return
+
+        def _bwd_chain(grad: Tensor) -> Tensor:
+            projected_grad = self._project_qkv_gradient_to_input_heads(grad, projection_module, hook_name)
+            updated = projected_grad
+            for hook_fn in bwd_hook_fns:
+                maybe_grad = hook_fn(updated, hook_ctx)
+                if maybe_grad is not None:
+                    updated = maybe_grad
+            return grad
+
+        projection_output.register_hook(_bwd_chain)
+
+    def _attach_mlp_in_backward_hook_from_ln_output(
+        self,
+        ln_output: Tensor,
+        ln_input: Tensor,
+        ln_module: torch.nn.Module,
+        hook_name: str,
+        hook_ctx: SimpleNamespace,
+        bwd_hook_fns: List[Callable],
+    ) -> None:
+        if not bwd_hook_fns:
+            return
+        if not torch.is_tensor(ln_output):
+            raise RuntimeError(
+                f"{hook_name} backward hooks require tensor layernorm output, got {type(ln_output)}"
+            )
+        if not ln_output.requires_grad:
+            return
+
+        cached_ln_input = ln_input.detach()
+
+        def _bwd_chain(grad: Tensor) -> Tensor:
+            projected_grad = self._layernorm_input_grads(
+                grad.unsqueeze(2),
+                cached_ln_input,
+                ln_module,
+            ).squeeze(2)
+            updated = projected_grad
+            for hook_fn in bwd_hook_fns:
+                maybe_grad = hook_fn(updated, hook_ctx)
+                if maybe_grad is not None:
+                    updated = maybe_grad
+            return grad
+
+        ln_output.register_hook(_bwd_chain)
 
     def forward(
         self,
@@ -462,19 +918,69 @@ class HFLLMBackend:
         fwd_hooks: Optional[List[BackendHookSpec]] = None,
         bwd_hooks: Optional[List[BackendHookSpec]] = None,
     ) -> Tensor:
-        if bwd_hooks:
-            raise RuntimeError(
-                "HFLLMBackend currently does not support backward hook interception. "
-                "Use TLens backend for gradient-based attribution methods."
-            )
-
         merged_fwd_hooks = list(run_inputs.extra_fwd_hooks)
         if fwd_hooks:
             merged_fwd_hooks.extend(fwd_hooks)
 
+        merged_bwd_hooks = list(bwd_hooks) if bwd_hooks else []
+
+        if not merged_fwd_hooks and not merged_bwd_hooks:
+            outputs = self.model(
+                input_ids=run_inputs.input_ids,
+                inputs_embeds=run_inputs.inputs_embeds,
+                attention_mask=run_inputs.attention_mask,
+                use_cache=False,
+                return_dict=True,
+                **run_inputs.model_kwargs,
+            )
+            if hasattr(outputs, "logits") and outputs.logits is not None:
+                return outputs.logits
+            if hasattr(outputs, "last_hidden_state") and outputs.last_hidden_state is not None:
+                return outputs.last_hidden_state
+            raise RuntimeError("HF model forward output does not expose logits or last_hidden_state")
+
+        fwd_by_name: Dict[str, List[Callable]] = {}
+        bwd_by_name: Dict[str, List[Callable]] = {}
+        hook_order: List[str] = []
+
+        for name, hook_fn in merged_fwd_hooks:
+            if name not in fwd_by_name:
+                fwd_by_name[name] = []
+            fwd_by_name[name].append(hook_fn)
+            if name not in hook_order:
+                hook_order.append(name)
+
+        for name, hook_fn in merged_bwd_hooks:
+            if name not in bwd_by_name:
+                bwd_by_name[name] = []
+            bwd_by_name[name].append(hook_fn)
+            if name not in hook_order:
+                hook_order.append(name)
+
+        self._ln1_residual_cache = {}
         handles = []
         try:
-            for name, hook_fn in merged_fwd_hooks:
+            captured_ln1_layers = set()
+            for name in hook_order:
+                if not (
+                    name.endswith(".hook_q_input")
+                    or name.endswith(".hook_k_input")
+                    or name.endswith(".hook_v_input")
+                ):
+                    continue
+                layer_idx = self._layer_index_from_hook_name(name)
+                if layer_idx in captured_ln1_layers:
+                    continue
+                ln1_module = getattr(self._layers[layer_idx], self._layer_accessors["ln1"])
+
+                def _capture_ln1_input(module, inputs, idx: int = layer_idx):
+                    if len(inputs) > 0:
+                        self._ln1_residual_cache[idx] = inputs[0].detach()
+
+                handles.append(ln1_module.register_forward_pre_hook(_capture_ln1_input))
+                captured_ln1_layers.add(layer_idx)
+
+            for name in hook_order:
                 target = self._hook_targets.get(name)
                 if target is None:
                     raise ValueError(
@@ -482,13 +988,16 @@ class HFLLMBackend:
                         f"Supported hook names include: {self.supported_hook_names[:12]} ..."
                     )
 
+                fwd_fns = fwd_by_name.get(name, [])
+                bwd_fns = bwd_by_name.get(name, [])
+
                 if target.mode == "forward":
                     handle = target.module.register_forward_hook(
-                        self._make_forward_hook(name, hook_fn)
+                        self._make_composed_forward_hook(name, target, fwd_fns, bwd_fns)
                     )
                 elif target.mode == "pre":
                     handle = target.module.register_forward_pre_hook(
-                        self._make_pre_hook(name, hook_fn)
+                        self._make_composed_pre_hook(name, fwd_fns, bwd_fns)
                     )
                 else:
                     raise RuntimeError(f"Unknown hook mode: {target.mode}")
