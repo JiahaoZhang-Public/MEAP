@@ -87,6 +87,42 @@ def get_scores_exact(
     return graph.scores
 
 
+def get_scores_smoke(
+    model: HookedTransformer,
+    graph: Graph,
+    batches: Iterable[BatchLike],
+    metric: MetricFn,
+    *,
+    quiet: bool = False,
+) -> Tensor:
+    """Run a forward-only multimodal sanity pass and return zero scores."""
+    del metric
+
+    scores = _new_scores(model, graph)
+    total_items = 0
+
+    batch_iter = iter_prepared_batches(model, batches)
+    if not quiet:
+        batch_iter = tqdm(batch_iter)
+
+    for batch in batch_iter:
+        clean_inputs = resolve_model_run_inputs(model, batch.clean_inputs)
+        corrupt_inputs = resolve_model_run_inputs(model, batch.corrupt_inputs)
+
+        if clean_inputs.tokens.shape != corrupt_inputs.tokens.shape:
+            raise ValueError("clean/corrupt token shapes must match")
+
+        total_items += batch.batch_size
+        with torch.inference_mode():
+            _ = forward_with_hooks(model, corrupt_inputs)
+            _ = forward_with_hooks(model, clean_inputs)
+
+    if total_items == 0:
+        raise ValueError("Cannot score an empty batch iterable")
+
+    return scores
+
+
 def get_scores_eap(
     model: HookedTransformer,
     graph: Graph,
@@ -422,6 +458,21 @@ def get_real_edge_scores(
 
 
 allowed_aggregations = {"sum", "mean"}
+_backward_methods = {"EAP", "EAP-IG-inputs", "clean-corrupted", "EAP-IG-activations"}
+
+
+def _assert_autograd_ready_for_attribution(model: HookedTransformer) -> None:
+    if not torch.is_grad_enabled():
+        raise RuntimeError(
+            "Attribution requires autograd to be enabled. "
+            "Do not wrap attribute() in torch.no_grad() or torch.inference_mode()."
+        )
+
+    if not any(param.requires_grad for param in model.parameters()):
+        raise RuntimeError(
+            "Attribution requires at least one model parameter with requires_grad=True. "
+            "Enable grads before scoring (for example: model.requires_grad_(True))."
+        )
 
 
 def attribute(
@@ -430,7 +481,7 @@ def attribute(
     batches: Iterable[BatchLike],
     metric: MetricFn,
     *,
-    method: Literal["EAP", "EAP-IG-inputs", "clean-corrupted", "EAP-IG-activations", "exact"],
+    method: Literal["EAP", "EAP-IG-inputs", "clean-corrupted", "EAP-IG-activations", "exact", "smoke"],
     intervention: Literal["patching", "zero", "mean", "mean-positional"] = "patching",
     aggregation: Literal["sum", "mean"] = "sum",
     ig_steps: Optional[int] = None,
@@ -451,8 +502,12 @@ def attribute(
         raise ValueError(f"aggregation must be in {allowed_aggregations}, but got {aggregation}")
 
     steps = ig_steps if ig_steps is not None else 30
+    if method in _backward_methods:
+        _assert_autograd_ready_for_attribution(model)
 
-    if method == "EAP":
+    if method == "smoke":
+        scores = get_scores_smoke(model, graph, batches, metric, quiet=quiet)
+    elif method == "EAP":
         scores = get_scores_eap(
             model,
             graph,
@@ -493,7 +548,7 @@ def attribute(
         )
     else:
         raise ValueError(
-            "method must be one of ['EAP', 'EAP-IG-inputs', 'clean-corrupted', "
+            "method must be one of ['smoke', 'EAP', 'EAP-IG-inputs', 'clean-corrupted', "
             "'EAP-IG-activations', 'exact']"
         )
 

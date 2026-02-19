@@ -6,6 +6,7 @@ from .attribute import (
     get_scores_eap_ig,
     get_scores_exact,
     get_scores_ig_activations,
+    get_scores_smoke,
 )
 from .batch import (
     PreparedBatch,
@@ -33,6 +34,7 @@ __all__ = [
     "get_scores_eap_ig",
     "get_scores_exact",
     "get_scores_ig_activations",
+    "get_scores_smoke",
     "iter_prepared_batches",
     "prepare_llava_token_pair_batch",
     "text_batch_to_prepared_batch",

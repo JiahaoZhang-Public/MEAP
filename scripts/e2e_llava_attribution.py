@@ -62,7 +62,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--method",
         default="EAP",
-        choices=["EAP", "EAP-IG-inputs", "clean-corrupted", "EAP-IG-activations", "exact"],
+        choices=["smoke", "EAP", "EAP-IG-inputs", "clean-corrupted", "EAP-IG-activations", "exact"],
         help="Attribution method.",
     )
     parser.add_argument("--ig-steps", type=int, default=4)
@@ -241,7 +241,6 @@ def load_tlens_backbone(
             )
 
     model.eval()
-    model.requires_grad_(False)
 
     try:
         model.cfg.use_attn_result = True
