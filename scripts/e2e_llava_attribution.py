@@ -348,9 +348,9 @@ def main() -> None:
         print("Warning: float16 on CPU is unsupported/unstable. Switching dtype to bfloat16.")
         args.dtype = "bfloat16"
     if args.backend == "hf" and args.method != "smoke":
-        raise ValueError(
-            "HF backend currently supports `smoke` only in this stage. "
-            "Use --backend tlens for gradient-based methods."
+        print(
+            "Warning: running a gradient-based method on HF backend for a 7B model can be very slow "
+            "and memory intensive."
         )
 
     set_seed(args.seed)

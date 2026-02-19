@@ -17,6 +17,7 @@ from typing import (
 
 import torch
 from torch import Tensor
+import torch.nn.functional as F
 
 BackendHookSpec = Tuple[str, Callable]
 
@@ -506,6 +507,7 @@ class HFLLMBackend:
         tokenizer=None,
         device: Optional[torch.device] = None,
         dtype: Optional[torch.dtype] = None,
+        ungroup_gqa: bool = True,
     ):
         if not hasattr(model, "config"):
             raise TypeError("HFLLMBackend requires a model with a HuggingFace-like .config")
@@ -532,6 +534,8 @@ class HFLLMBackend:
         self._layer_accessors = resolution.layer_accessors
         self._embed_module = resolution.embed_module
         self._resid_module = resolution.resid_module
+        if ungroup_gqa:
+            self._maybe_ungroup_gqa_inplace()
         self._hook_targets = self._build_hook_targets()
         self._config = self._normalize_config(self.model)
         self._ln1_residual_cache: Dict[int, Tensor] = {}
@@ -551,6 +555,128 @@ class HFLLMBackend:
     @property
     def supported_hook_names(self) -> List[str]:
         return sorted(self._hook_targets.keys())
+
+    def _expand_projection_to_full_heads(
+        self,
+        proj: torch.nn.Module,
+        *,
+        repeats: int,
+        new_n_heads: int,
+        old_n_heads: int,
+        head_dim: int,
+    ) -> torch.nn.Module:
+        if not isinstance(proj, torch.nn.Linear):
+            raise RuntimeError(
+                "GQA ungroup currently supports nn.Linear k/v projections only; "
+                f"got {proj.__class__.__name__}"
+            )
+
+        with torch.no_grad():
+            weight = proj.weight.detach().clone()
+            if weight.shape[0] != old_n_heads * head_dim:
+                raise RuntimeError(
+                    "Projection output shape is incompatible with head_dim: "
+                    f"out={weight.shape[0]} old_n_heads={old_n_heads} head_dim={head_dim}"
+                )
+
+            expanded_weight = (
+                weight.view(old_n_heads, head_dim, weight.shape[1])
+                .repeat_interleave(repeats, dim=0)
+                .reshape(new_n_heads * head_dim, weight.shape[1])
+            )
+            if expanded_weight.shape[0] != new_n_heads * head_dim:
+                raise RuntimeError(
+                    "Expanded projection weight has unexpected shape: "
+                    f"{tuple(expanded_weight.shape)} expected out={new_n_heads * head_dim}"
+                )
+            proj.weight = torch.nn.Parameter(expanded_weight.to(weight.device, weight.dtype))
+
+            if proj.bias is not None:
+                bias = proj.bias.detach().clone()
+                if bias.shape[0] != old_n_heads * head_dim:
+                    raise RuntimeError(
+                        "Projection bias shape is incompatible with head_dim: "
+                        f"out={bias.shape[0]} old_n_heads={old_n_heads} head_dim={head_dim}"
+                    )
+                expanded_bias = (
+                    bias.view(old_n_heads, head_dim)
+                    .repeat_interleave(repeats, dim=0)
+                    .reshape(new_n_heads * head_dim)
+                )
+                proj.bias = torch.nn.Parameter(expanded_bias.to(bias.device, bias.dtype))
+
+            proj.out_features = new_n_heads * head_dim
+        return proj
+
+    def _maybe_ungroup_gqa_inplace(self) -> None:
+        # Mirror TransformerLens ungroup_grouped_query_attention semantics by expanding
+        # k/v projections to n_heads and disabling repeat_kv groups in attention modules.
+        attn_attr = self._layer_accessors["attn"]
+        changed = False
+        for layer in self._layers:
+            attn = getattr(layer, attn_attr)
+            head_dim = getattr(attn, "head_dim", None)
+            if head_dim is None and hasattr(attn, "config"):
+                cfg_head_dim = getattr(attn.config, "head_dim", None)
+                if cfg_head_dim is not None:
+                    head_dim = cfg_head_dim
+            if head_dim is None and hasattr(attn, "q_proj"):
+                hidden = int(getattr(attn.q_proj, "in_features", 0))
+                n_attn_cfg = getattr(getattr(attn, "config", None), "num_attention_heads", None)
+                if n_attn_cfg:
+                    head_dim = hidden // int(n_attn_cfg)
+
+            n_heads = None
+            if head_dim is not None and hasattr(attn, "q_proj"):
+                n_heads = int(attn.q_proj.out_features) // int(head_dim)
+            if n_heads is None:
+                n_heads = getattr(attn, "num_heads", None)
+            if n_heads is None and hasattr(attn, "config"):
+                n_heads = getattr(attn.config, "num_attention_heads", None)
+
+            n_kv_heads = None
+            if head_dim is not None and hasattr(attn, "k_proj"):
+                n_kv_heads = int(attn.k_proj.out_features) // int(head_dim)
+            if n_kv_heads is None:
+                n_kv_heads = getattr(attn, "num_key_value_heads", None)
+            if n_kv_heads is None and hasattr(attn, "config"):
+                n_kv_heads = getattr(attn.config, "num_key_value_heads", None)
+
+            if n_heads is None or n_kv_heads is None or head_dim is None:
+                continue
+            if not isinstance(n_heads, int) or not isinstance(n_kv_heads, int):
+                continue
+            if n_kv_heads <= 0 or n_kv_heads == n_heads:
+                continue
+            if n_heads % n_kv_heads != 0:
+                raise RuntimeError(
+                    f"Cannot ungroup GQA when n_heads={n_heads} is not divisible by n_kv_heads={n_kv_heads}"
+                )
+
+            repeats = n_heads // n_kv_heads
+            self._expand_projection_to_full_heads(
+                attn.k_proj,
+                repeats=repeats,
+                new_n_heads=n_heads,
+                old_n_heads=n_kv_heads,
+                head_dim=int(head_dim),
+            )
+            self._expand_projection_to_full_heads(
+                attn.v_proj,
+                repeats=repeats,
+                new_n_heads=n_heads,
+                old_n_heads=n_kv_heads,
+                head_dim=int(head_dim),
+            )
+
+            attn.num_key_value_heads = n_heads
+            if hasattr(attn, "num_key_value_groups"):
+                attn.num_key_value_groups = 1
+            changed = True
+
+        if changed:
+            # Keep top-level config metadata unchanged; only attention module internals are ungrouped.
+            return
 
     def _resolve_architecture(
         self,
@@ -770,20 +896,21 @@ class HFLLMBackend:
                 if len(inputs) == 0:
                     raise RuntimeError(f"{name} expects at least one module input tensor")
                 ln_input = inputs[0]
+                original_ln_input = ln_input.clone()
                 updated = self._apply_forward_hook_chain(ln_input, hook_ctx, fwd_hook_fns)
-                if updated is not ln_input:
-                    raise RuntimeError(
-                        "HFLLMBackend hook_mlp_in does not support activation replacement"
-                    )
+                ln_output = output
+                input_changed = (updated is not ln_input) or (not torch.equal(updated, original_ln_input))
+                if input_changed:
+                    ln_output = self._apply_norm_module(module, updated)
                 self._attach_mlp_in_backward_hook_from_ln_output(
-                    ln_output=output,
-                    ln_input=ln_input,
+                    ln_output=ln_output,
+                    ln_input=updated,
                     ln_module=module,
                     hook_name=name,
                     hook_ctx=hook_ctx,
                     bwd_hook_fns=bwd_hook_fns,
                 )
-                return output
+                return ln_output
 
             if (
                 name.endswith(".hook_q_input")
@@ -793,19 +920,26 @@ class HFLLMBackend:
                 if len(inputs) == 0:
                     raise RuntimeError(f"{name} expects at least one module input tensor")
                 projected = self._project_qkv_input_for_hook(inputs[0], name)
+                original_projected = projected.clone()
                 updated = self._apply_forward_hook_chain(projected, hook_ctx, fwd_hook_fns)
-                if updated is not projected:
-                    raise RuntimeError(
-                        "HFLLMBackend q/k/v input hook does not support activation replacement"
+                projection_output = output
+                input_changed = (updated is not projected) or (not torch.equal(updated, original_projected))
+                if input_changed:
+                    projection_output = self._replace_projection_output_from_qkv_input(
+                        original_projected_input=projected,
+                        updated_projected_input=updated,
+                        projection_output=output,
+                        projection_module=module,
+                        hook_name=name,
                     )
                 self._attach_qkv_backward_hook_from_projection_output(
-                    projection_output=output,
+                    projection_output=projection_output,
                     projection_module=module,
                     hook_name=name,
                     hook_ctx=hook_ctx,
                     bwd_hook_fns=bwd_hook_fns,
                 )
-                return output
+                return projection_output
 
             if target.output_index is None:
                 updated = self._apply_forward_hook_chain(output, hook_ctx, fwd_hook_fns)
@@ -852,13 +986,19 @@ class HFLLMBackend:
             if name.endswith(".attn.hook_result"):
                 current = inputs[0]
                 projected = self._project_attention_result_from_proj_input(current, module, name)
+                original_projected = projected.clone()
                 updated = self._apply_forward_hook_chain(projected, hook_ctx, fwd_hook_fns)
                 self._attach_backward_hook_chain(updated, hook_ctx, bwd_hook_fns)
-                if updated is not projected:
-                    raise RuntimeError(
-                        "HFLLMBackend attn.hook_result hook does not support activation replacement"
-                    )
-                return None
+                output_changed = (updated is not projected) or (not torch.equal(updated, original_projected))
+                if not output_changed:
+                    return None
+                replaced_input = self._replace_projection_input_from_attn_result(
+                    original_projection_input=current,
+                    updated_projected_output=updated,
+                    projection_module=module,
+                    hook_name=name,
+                )
+                return (replaced_input, *inputs[1:])
 
             if (
                 name.endswith(".hook_q_input")
@@ -875,6 +1015,56 @@ class HFLLMBackend:
             return (updated, *inputs[1:])
 
         return _wrapped
+
+    def _module_pinv(self, module: torch.nn.Module) -> Tensor:
+        if not hasattr(self, "_module_pinv_cache"):
+            self._module_pinv_cache = {}
+        cache = self._module_pinv_cache
+        key = id(module)
+        if key not in cache:
+            if not hasattr(module, "weight"):
+                raise RuntimeError(
+                    f"Cannot compute pseudo-inverse for module without weight: {module.__class__.__name__}"
+                )
+            weight = module.weight.detach().float()
+            if module.__class__.__name__ == "Conv1D":
+                cache[key] = torch.linalg.pinv(weight).to(module.weight.device, module.weight.dtype)
+            else:
+                cache[key] = torch.linalg.pinv(weight.transpose(0, 1)).to(
+                    module.weight.device,
+                    module.weight.dtype,
+                )
+        return cache[key]
+
+    def _replace_projection_input_from_attn_result(
+        self,
+        *,
+        original_projection_input: Tensor,
+        updated_projected_output: Tensor,
+        projection_module: torch.nn.Module,
+        hook_name: str,
+    ) -> Tensor:
+        if updated_projected_output.ndim != 4:
+            raise RuntimeError(
+                f"{hook_name} expected rank-4 updated attn result [batch, pos, heads, d_model], "
+                f"got {tuple(updated_projected_output.shape)}"
+            )
+        desired_output = updated_projected_output.sum(dim=2)
+        bias = getattr(projection_module, "bias", None)
+        if bias is not None:
+            desired_output = desired_output - bias.view(1, 1, -1)
+
+        pinv = self._module_pinv(projection_module)
+        if projection_module.__class__.__name__ == "Conv1D":
+            replaced = torch.einsum("bpo,oi->bpi", desired_output, pinv)
+        else:
+            replaced = torch.einsum("bpo,oi->bpi", desired_output, pinv)
+        if replaced.shape != original_projection_input.shape:
+            raise RuntimeError(
+                f"{hook_name} replacement input shape mismatch: "
+                f"expected {tuple(original_projection_input.shape)}, got {tuple(replaced.shape)}"
+            )
+        return replaced
 
     def _project_attention_result_from_proj_input(
         self,
@@ -935,12 +1125,130 @@ class HFLLMBackend:
                 f"{hook_name} expected rank-3 projection input [batch, seq, d_model], "
                 f"got {tuple(qkv_input.shape)}"
             )
-        return qkv_input.unsqueeze(2).expand(
-            qkv_input.shape[0],
-            qkv_input.shape[1],
-            self._config.n_heads,
-            qkv_input.shape[2],
+        # We materialize a dense tensor because intervention hooks can mutate in-place.
+        # repeat() expects per-dimension multipliers, so keep batch/pos/model multipliers at 1.
+        return qkv_input.unsqueeze(2).repeat(1, 1, self._config.n_heads, 1)
+
+    def _apply_norm_module(self, module: torch.nn.Module, inputs: Tensor) -> Tensor:
+        if isinstance(module, torch.nn.LayerNorm):
+            return F.layer_norm(
+                inputs,
+                module.normalized_shape,
+                module.weight,
+                module.bias,
+                module.eps,
+            )
+        if hasattr(module, "weight"):
+            eps = float(getattr(module, "variance_epsilon", getattr(module, "eps", 1e-6)))
+            variance = inputs.float().pow(2).mean(-1, keepdim=True)
+            hidden_states = inputs.float() * torch.rsqrt(variance + eps)
+            output = hidden_states.to(inputs.dtype) * module.weight
+            if getattr(module, "bias", None) is not None:
+                output = output + module.bias
+            return output
+        raise RuntimeError(
+            f"Unsupported normalization module for hook_mlp_in replacement: {module.__class__.__name__}"
         )
+
+    def _replace_projection_output_from_qkv_input(
+        self,
+        *,
+        original_projected_input: Tensor,
+        updated_projected_input: Tensor,
+        projection_output: Tensor,
+        projection_module: torch.nn.Module,
+        hook_name: str,
+    ) -> Tensor:
+        if updated_projected_input.shape != original_projected_input.shape:
+            raise RuntimeError(
+                f"{hook_name} replacement shape mismatch: expected {tuple(original_projected_input.shape)}, "
+                f"got {tuple(updated_projected_input.shape)}"
+            )
+        if projection_output.ndim != 3:
+            raise RuntimeError(
+                f"{hook_name} expected rank-3 projection output [batch, seq, dim], "
+                f"got {tuple(projection_output.shape)}"
+            )
+
+        delta_heads = updated_projected_input - original_projected_input
+
+        if (
+            self._arch_kind == "gpt2_like"
+            and projection_module.__class__.__name__ == "Conv1D"
+            and hasattr(projection_module, "weight")
+        ):
+            weight = projection_module.weight
+            d_model = self._config.d_model
+            d_head = d_model // self._config.n_heads
+            if int(weight.shape[0]) != d_model or int(weight.shape[1]) != 3 * d_model:
+                raise RuntimeError(
+                    f"{hook_name} unsupported Conv1D weight shape for replacement: {tuple(weight.shape)}"
+                )
+
+            qkv_letter = self._qkv_letter_from_hook_name(hook_name)
+            qkv_index = "qkv".index(qkv_letter)
+            start = qkv_index * d_model
+            end = (qkv_index + 1) * d_model
+
+            weight_chunk = weight[:, start:end].view(d_model, self._config.n_heads, d_head)
+            delta_chunk = torch.einsum("bphm,mhd->bphd", delta_heads, weight_chunk).reshape(
+                projection_output.shape[0],
+                projection_output.shape[1],
+                d_model,
+            )
+            replaced = projection_output.clone()
+            replaced[:, :, start:end] = replaced[:, :, start:end] + delta_chunk
+            return replaced
+
+        if not hasattr(projection_module, "weight"):
+            raise RuntimeError(f"{hook_name} projection module missing weight for replacement")
+
+        weight = projection_module.weight
+        if weight.ndim != 2:
+            raise RuntimeError(
+                f"{hook_name} projection weight must be rank-2 for replacement, got {weight.ndim}"
+            )
+
+        out_dim = int(weight.shape[0])
+        in_dim = int(weight.shape[1])
+        d_model = self._config.d_model
+        if in_dim != d_model:
+            raise RuntimeError(
+                f"{hook_name} projection input dim mismatch for replacement: "
+                f"weight_in={in_dim}, expected={d_model}"
+            )
+
+        d_head = d_model // self._config.n_heads
+        if out_dim % d_head != 0:
+            raise RuntimeError(
+                f"{hook_name} projection output dim {out_dim} is not divisible by d_head={d_head}"
+            )
+        out_heads = out_dim // d_head
+
+        if out_heads == self._config.n_heads:
+            grouped_delta = delta_heads
+        elif self._config.n_heads % out_heads == 0:
+            group_size = self._config.n_heads // out_heads
+            grouped_delta = delta_heads.reshape(
+                delta_heads.shape[0],
+                delta_heads.shape[1],
+                out_heads,
+                group_size,
+                delta_heads.shape[-1],
+            ).mean(dim=3)
+        else:
+            raise RuntimeError(
+                f"{hook_name} cannot map n_heads={self._config.n_heads} to out_heads={out_heads}"
+            )
+
+        weight_heads = weight.view(out_heads, d_head, d_model)
+        delta_out_heads = torch.einsum("bphm,hdm->bphd", grouped_delta, weight_heads)
+        delta_out = delta_out_heads.reshape(
+            projection_output.shape[0],
+            projection_output.shape[1],
+            out_dim,
+        )
+        return projection_output + delta_out
 
     def _qkv_letter_from_hook_name(self, hook_name: str) -> str:
         if hook_name.endswith(".hook_q_input"):
@@ -964,6 +1272,19 @@ class HFLLMBackend:
         layernorm_module: torch.nn.Module,
     ) -> Tensor:
         if not isinstance(layernorm_module, torch.nn.LayerNorm):
+            # RMSNorm-style modules (e.g. Llama/Qwen) typically expose only a weight parameter.
+            if hasattr(layernorm_module, "weight"):
+                ln_input_fp = ln_input.float().unsqueeze(2)
+                grads_fp = grads_wrt_ln_out.float()
+                weight = layernorm_module.weight.float().view(1, 1, 1, -1)
+                eps = float(getattr(layernorm_module, "variance_epsilon", getattr(layernorm_module, "eps", 1e-6)))
+
+                gw = grads_fp * weight
+                variance = ln_input_fp.pow(2).mean(dim=-1, keepdim=True)
+                inv_rms = torch.rsqrt(variance + eps)
+                mean_gw_x = (gw * ln_input_fp).mean(dim=-1, keepdim=True)
+                grads_ln_in = gw * inv_rms - ln_input_fp * inv_rms.pow(3) * mean_gw_x
+                return grads_ln_in.to(dtype=grads_wrt_ln_out.dtype)
             return grads_wrt_ln_out
 
         ln_input_fp = ln_input.float()

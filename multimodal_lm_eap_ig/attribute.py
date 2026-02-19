@@ -6,7 +6,7 @@ import torch
 from torch import Tensor
 from tqdm import tqdm
 
-from .backend import ModelBackend, is_hf_backend, resolve_backend
+from .backend import ModelBackend, resolve_backend
 from .batch import BatchLike, PreparedBatch, iter_prepared_batches
 from .evaluate import evaluate_baseline, evaluate_graph
 from .graph import Graph
@@ -33,13 +33,8 @@ def _resolve_backend_for_method(
     backend: Optional[ModelBackend],
     method: str,
 ) -> ModelBackend:
-    backend_obj = resolve_backend(model, backend)
-    if is_hf_backend(backend_obj) and method not in {"smoke", "EAP-IG-inputs"}:
-        raise RuntimeError(
-            "HF backend currently supports `smoke` and `EAP-IG-inputs` only in this stage; "
-            "use TLens backend for other gradient-based attribution methods."
-        )
-    return backend_obj
+    del method
+    return resolve_backend(model, backend)
 
 
 def _prepare_means(

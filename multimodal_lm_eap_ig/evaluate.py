@@ -7,7 +7,7 @@ import torch
 from torch import Tensor
 from tqdm import tqdm
 
-from .backend import ModelBackend, TLensBackend, is_hf_backend, resolve_backend
+from .backend import ModelBackend, TLensBackend, resolve_backend
 from .batch import BatchLike, PreparedBatch, iter_prepared_batches
 from .graph import AttentionNode, Graph
 from .utils import (
@@ -20,18 +20,15 @@ from .utils import (
 MetricFn = Callable[[Tensor, Optional[Tensor], PreparedBatch], Tensor]
 
 
-def _resolve_tlens_backend(
+def _resolve_evaluation_backend(
     model: Any,
     backend: Optional[ModelBackend],
-) -> TLensBackend:
+) -> ModelBackend:
     backend_obj = resolve_backend(model, backend)
-    if is_hf_backend(backend_obj):
+    if backend_obj.config.use_normalization_before_and_after and not isinstance(backend_obj, TLensBackend):
         raise RuntimeError(
-            "evaluate_graph/evaluate_baseline currently support TLens backend only. "
-            "HF backend is smoke-only in this stage."
+            "use_normalization_before_and_after path currently requires TLensBackend"
         )
-    if not isinstance(backend_obj, TLensBackend):
-        raise RuntimeError("Evaluation currently requires TLensBackend")
     return backend_obj
 
 
@@ -49,11 +46,11 @@ def evaluate_graph(
 ) -> Union[torch.Tensor, List[torch.Tensor]]:
     """Evaluate a pruned circuit under patching/ablation interventions."""
 
-    tl_backend = _resolve_tlens_backend(model, backend)
-    tl_model = tl_backend.model
+    backend_obj = _resolve_evaluation_backend(model, backend)
+    tl_model = backend_obj.model if isinstance(backend_obj, TLensBackend) else None
 
-    assert tl_backend.config.use_attn_result, "Model must enable use_attn_result"
-    if tl_backend.config.n_key_value_heads is not None:
+    assert backend_obj.config.use_attn_result, "Model must enable use_attn_result"
+    if backend_obj.config.n_key_value_heads is not None:
         pass
 
     assert intervention in ["patching", "zero", "mean", "mean-positional"]
@@ -64,7 +61,7 @@ def evaluate_graph(
             raise ValueError("intervention_batches must be provided for mean interventions")
         per_position = "positional" in intervention
         means = compute_mean_activations(
-            tl_backend,
+            backend_obj,
             graph,
             intervention_batches,
             per_position=per_position,
@@ -75,11 +72,16 @@ def evaluate_graph(
 
     graph.prune()
 
-    in_graph_matrix = graph.in_graph.to(device=tl_backend.config.device, dtype=tl_backend.config.dtype)
+    in_graph_matrix = graph.in_graph.to(device=backend_obj.config.device, dtype=backend_obj.config.dtype)
 
     if graph.neurons_in_graph is not None:
-        neuron_matrix = graph.neurons_in_graph.to(device=tl_backend.config.device, dtype=tl_backend.config.dtype)
-        node_fully_in_graph = (neuron_matrix.sum(-1) == tl_backend.config.d_model).to(tl_backend.config.dtype)
+        neuron_matrix = graph.neurons_in_graph.to(
+            device=backend_obj.config.device,
+            dtype=backend_obj.config.dtype,
+        )
+        node_fully_in_graph = (neuron_matrix.sum(-1) == backend_obj.config.d_model).to(
+            backend_obj.config.dtype
+        )
         in_graph_matrix = einsum(
             in_graph_matrix,
             node_fully_in_graph,
@@ -92,22 +94,26 @@ def evaluate_graph(
     if neuron_matrix is not None:
         neuron_matrix = 1 - neuron_matrix
 
-    if tl_backend.config.use_normalization_before_and_after:
+    if backend_obj.config.use_normalization_before_and_after:
+        if tl_model is None:
+            raise RuntimeError(
+                "use_normalization_before_and_after currently requires TLensBackend/model blocks"
+            )
         attention_head_mask = torch.zeros(
-            (graph.n_forward, tl_backend.config.n_layers),
-            device=tl_backend.config.device,
-            dtype=tl_backend.config.dtype,
+            (graph.n_forward, backend_obj.config.n_layers),
+            device=backend_obj.config.device,
+            dtype=backend_obj.config.dtype,
         )
         for node in graph.nodes.values():
             if isinstance(node, AttentionNode):
                 attention_head_mask[graph.forward_index(node), node.layer] = 1
 
-        non_attention_head_mask = 1 - attention_head_mask.any(-1).to(dtype=tl_backend.config.dtype)
+        non_attention_head_mask = 1 - attention_head_mask.any(-1).to(dtype=backend_obj.config.dtype)
         attention_biases = torch.stack([block.attn.b_O for block in tl_model.blocks])
 
     def make_input_construction_hook(activation_matrix, in_graph_vector, neuron_mask):
         def input_construction_hook(activations, hook):
-            if tl_backend.config.use_normalization_before_and_after:
+            if backend_obj.config.use_normalization_before_and_after:
                 activation_differences = activation_matrix[0] - activation_matrix[1]
 
                 clean_attention_results = einsum(
@@ -198,14 +204,14 @@ def evaluate_graph(
 
     def make_input_construction_hooks(activation_differences, in_graph_values, neuron_mask):
         hooks = []
-        for layer in range(tl_backend.config.n_layers):
+        for layer in range(backend_obj.config.n_layers):
             if any(
-                graph.nodes[f"a{layer}.h{head}"].in_graph for head in range(tl_backend.config.n_heads)
+                graph.nodes[f"a{layer}.h{head}"].in_graph for head in range(backend_obj.config.n_heads)
             ) and not (
                 neuron_mask is None
                 and all(
                     parent_edge.in_graph
-                    for head in range(tl_backend.config.n_heads)
+                    for head in range(backend_obj.config.n_heads)
                     for parent_edge in graph.nodes[f"a{layer}.h{head}"].parent_edges
                 )
             ):
@@ -255,13 +261,13 @@ def evaluate_graph(
     metrics_list = metrics if isinstance(metrics, list) else [metrics]
     results: List[List[Tensor]] = [[] for _ in metrics_list]
 
-    batch_iter = iter_prepared_batches(tl_backend.tokenization_model, batches)
+    batch_iter = iter_prepared_batches(backend_obj.tokenization_model, batches)
     if not quiet:
         batch_iter = tqdm(batch_iter)
 
     for batch in batch_iter:
-        clean_inputs = resolve_run_inputs(tl_backend, batch.clean_inputs)
-        corrupt_inputs = resolve_run_inputs(tl_backend, batch.corrupt_inputs)
+        clean_inputs = resolve_run_inputs(backend_obj, batch.clean_inputs)
+        corrupt_inputs = resolve_run_inputs(backend_obj, batch.corrupt_inputs)
 
         run_clean = clean_inputs.run_inputs
         run_corrupt = corrupt_inputs.run_inputs
@@ -280,7 +286,7 @@ def evaluate_graph(
         n_pos = int(clean_shape[1])
 
         (fwd_hooks_corrupted, fwd_hooks_clean, _), activation_difference = make_hooks_and_matrices(
-            tl_backend,
+            backend_obj,
             graph,
             batch_size,
             n_pos,
@@ -301,13 +307,13 @@ def evaluate_graph(
 
         with torch.inference_mode():
             if intervention == "patching":
-                _ = forward_with_hooks(tl_backend, corrupt_inputs, fwd_hooks=fwd_hooks_corrupted)
+                _ = forward_with_hooks(backend_obj, corrupt_inputs, fwd_hooks=fwd_hooks_corrupted)
             elif means is not None:
                 activation_difference += means
 
-            clean_logits = None if skip_clean else forward_with_hooks(tl_backend, clean_inputs)
+            clean_logits = None if skip_clean else forward_with_hooks(backend_obj, clean_inputs)
             logits = forward_with_hooks(
-                tl_backend,
+                backend_obj,
                 clean_inputs,
                 fwd_hooks=fwd_hooks_clean + input_construction_hooks,
             )
@@ -335,22 +341,22 @@ def evaluate_baseline(
 ) -> Union[torch.Tensor, List[torch.Tensor]]:
     """Evaluate baseline model behavior without graph interventions."""
 
-    tl_backend = _resolve_tlens_backend(model, backend)
+    backend_obj = _resolve_evaluation_backend(model, backend)
 
     metrics_list = metrics if isinstance(metrics, list) else [metrics]
     results: List[List[Tensor]] = [[] for _ in metrics_list]
 
-    batch_iter = iter_prepared_batches(tl_backend.tokenization_model, batches)
+    batch_iter = iter_prepared_batches(backend_obj.tokenization_model, batches)
     if not quiet:
         batch_iter = tqdm(batch_iter)
 
     for batch in batch_iter:
-        clean_inputs = resolve_run_inputs(tl_backend, batch.clean_inputs)
-        corrupt_inputs = resolve_run_inputs(tl_backend, batch.corrupt_inputs)
+        clean_inputs = resolve_run_inputs(backend_obj, batch.clean_inputs)
+        corrupt_inputs = resolve_run_inputs(backend_obj, batch.corrupt_inputs)
 
         with torch.inference_mode():
-            corrupted_logits = forward_with_hooks(tl_backend, corrupt_inputs)
-            logits = forward_with_hooks(tl_backend, clean_inputs)
+            corrupted_logits = forward_with_hooks(backend_obj, corrupt_inputs)
+            logits = forward_with_hooks(backend_obj, clean_inputs)
 
         for i, metric in enumerate(metrics_list):
             if run_corrupted:

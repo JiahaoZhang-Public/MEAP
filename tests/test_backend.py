@@ -120,6 +120,47 @@ def test_hf_backend_supports_opt_and_builds_hook_scaffold():
     assert "blocks.0.hook_resid_post" in names
 
 
+def test_hf_backend_ungroups_gqa_without_changing_logits():
+    cfg = LlamaConfig(
+        hidden_size=16,
+        intermediate_size=32,
+        num_hidden_layers=1,
+        num_attention_heads=4,
+        num_key_value_heads=2,
+        vocab_size=128,
+        max_position_embeddings=32,
+    )
+    baseline = LlamaForCausalLM(cfg).eval()
+    model = LlamaForCausalLM(cfg).eval()
+    model.load_state_dict(baseline.state_dict())
+
+    input_ids = torch.tensor([[1, 2, 3, 4]])
+    attention_mask = torch.ones_like(input_ids)
+    with torch.inference_mode():
+        baseline_logits = baseline(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            use_cache=False,
+            return_dict=True,
+        ).logits
+
+    backend = HFLLMBackend(model)
+    attn = model.model.layers[0].self_attn
+    assert getattr(attn, "num_key_value_groups", None) == 1
+    assert attn.k_proj.out_features == cfg.num_attention_heads * attn.head_dim
+    assert attn.v_proj.out_features == cfg.num_attention_heads * attn.head_dim
+    assert backend.config.n_key_value_heads == cfg.num_key_value_heads
+
+    with torch.inference_mode():
+        logits = model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            use_cache=False,
+            return_dict=True,
+        ).logits
+    assert torch.allclose(logits, baseline_logits, atol=1e-6, rtol=1e-6)
+
+
 def test_hf_backend_rejects_non_decoder_backbone():
     class DummyModel(torch.nn.Module):
         def __init__(self):
@@ -212,20 +253,33 @@ def test_attribute_eap_ig_inputs_with_hf_backend_succeeds():
     assert torch.isfinite(scores).all()
 
 
-def test_attribute_non_smoke_with_hf_backend_raises_staged_error():
+@pytest.mark.parametrize(
+    ("method", "extra_kwargs"),
+    [
+        ("EAP", {}),
+        ("EAP-IG-inputs", {"ig_steps": 2}),
+        ("clean-corrupted", {}),
+        ("EAP-IG-activations", {"ig_steps": 2}),
+        ("exact", {}),
+    ],
+)
+def test_attribute_non_smoke_methods_with_hf_backend_succeed(method, extra_kwargs):
     model = _tiny_llama_lm()
     backend = HFLLMBackend(model)
     graph = Graph.from_model(backend.config)
 
-    with pytest.raises(RuntimeError, match="supports `smoke` and `EAP-IG-inputs` only"):
-        attribute(
-            model=model,
-            backend=backend,
-            graph=graph,
-            batches=[_prepared_batch()],
-            metric=_metric,
-            method="EAP",
-        )
+    scores = attribute(
+        model=model,
+        backend=backend,
+        graph=graph,
+        batches=[_prepared_batch()],
+        metric=_metric,
+        method=method,
+        **extra_kwargs,
+    )
+
+    assert scores.shape == (graph.n_forward, graph.n_backward)
+    assert torch.isfinite(scores).all()
 
 
 def test_attribute_requires_backend_for_non_tlens_model():
