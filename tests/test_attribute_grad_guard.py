@@ -1,27 +1,34 @@
-import types
-
 import importlib
+
 import pytest
 import torch
+from transformer_lens import HookedTransformer, HookedTransformerConfig
 
+from multimodal_lm_eap_ig.backend import TLensBackend
 from multimodal_lm_eap_ig.graph import Graph
 
 attribute_module = importlib.import_module("multimodal_lm_eap_ig.attribute")
 
 
-class DummyModel:
-    def __init__(self, *, requires_grad: bool):
-        self.cfg = types.SimpleNamespace(
-            use_attn_result=True,
-            use_split_qkv_input=True,
-            use_hook_mlp_in=True,
-            n_key_value_heads=None,
-            d_model=4,
-        )
-        self._param = torch.nn.Parameter(torch.tensor(1.0), requires_grad=requires_grad)
-
-    def parameters(self):
-        yield self._param
+def _tiny_tlens_model(*, requires_grad: bool) -> HookedTransformer:
+    cfg = HookedTransformerConfig(
+        n_layers=1,
+        n_heads=1,
+        d_model=16,
+        d_head=16,
+        d_mlp=32,
+        n_ctx=16,
+        d_vocab=128,
+        act_fn="relu",
+    )
+    model = HookedTransformer(cfg)
+    model.cfg.use_attn_result = True
+    model.cfg.use_split_qkv_input = True
+    model.cfg.use_hook_mlp_in = True
+    if not requires_grad:
+        for p in model.parameters():
+            p.requires_grad_(False)
+    return model
 
 
 def _dummy_metric(logits, clean_logits, batch):
@@ -35,18 +42,20 @@ def _dummy_graph() -> Graph:
             "n_layers": 1,
             "n_heads": 1,
             "parallel_attn_mlp": True,
-            "d_model": 4,
+            "d_model": 16,
         }
     )
 
 
 def test_attribute_eap_raises_when_model_params_are_frozen():
-    model = DummyModel(requires_grad=False)
+    model = _tiny_tlens_model(requires_grad=False)
+    backend = TLensBackend(model)
     graph = _dummy_graph()
 
     with pytest.raises(RuntimeError, match="requires_grad=True"):
         attribute_module.attribute(
             model=model,
+            backend=backend,
             graph=graph,
             batches=[],
             metric=_dummy_metric,
@@ -55,13 +64,15 @@ def test_attribute_eap_raises_when_model_params_are_frozen():
 
 
 def test_attribute_eap_raises_under_no_grad_context():
-    model = DummyModel(requires_grad=True)
+    model = _tiny_tlens_model(requires_grad=True)
+    backend = TLensBackend(model)
     graph = _dummy_graph()
 
     with torch.no_grad():
         with pytest.raises(RuntimeError, match="torch.no_grad\\(\\)|torch.inference_mode\\(\\)"):
             attribute_module.attribute(
                 model=model,
+                backend=backend,
                 graph=graph,
                 batches=[],
                 metric=_dummy_metric,
@@ -70,7 +81,8 @@ def test_attribute_eap_raises_under_no_grad_context():
 
 
 def test_attribute_exact_is_not_blocked_by_grad_guard(monkeypatch):
-    model = DummyModel(requires_grad=False)
+    model = _tiny_tlens_model(requires_grad=False)
+    backend = TLensBackend(model)
     graph = _dummy_graph()
     called = {"value": False}
 
@@ -83,6 +95,7 @@ def test_attribute_exact_is_not_blocked_by_grad_guard(monkeypatch):
 
     scores = attribute_module.attribute(
         model=model,
+        backend=backend,
         graph=graph,
         batches=[],
         metric=_dummy_metric,
@@ -94,7 +107,8 @@ def test_attribute_exact_is_not_blocked_by_grad_guard(monkeypatch):
 
 
 def test_attribute_smoke_is_not_blocked_by_grad_guard(monkeypatch):
-    model = DummyModel(requires_grad=False)
+    model = _tiny_tlens_model(requires_grad=False)
+    backend = TLensBackend(model)
     graph = _dummy_graph()
     called = {"value": False}
 
@@ -108,6 +122,7 @@ def test_attribute_smoke_is_not_blocked_by_grad_guard(monkeypatch):
     with torch.no_grad():
         scores = attribute_module.attribute(
             model=model,
+            backend=backend,
             graph=graph,
             batches=[],
             metric=_dummy_metric,

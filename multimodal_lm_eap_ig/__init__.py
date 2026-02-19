@@ -8,6 +8,13 @@ from .attribute import (
     get_scores_ig_activations,
     get_scores_smoke,
 )
+from .backend import (
+    BackendConfig,
+    BackendRunInputs,
+    HFLLMBackend,
+    TLensBackend,
+    resolve_backend,
+)
 from .batch import (
     PreparedBatch,
     iter_prepared_batches,
@@ -25,6 +32,8 @@ __all__ = [
     "Graph",
     "PreparedBatch",
     "attribute",
+    "BackendConfig",
+    "BackendRunInputs",
     "build_default_llava_processor",
     "evaluate_baseline",
     "evaluate_graph",
@@ -35,8 +44,11 @@ __all__ = [
     "get_scores_exact",
     "get_scores_ig_activations",
     "get_scores_smoke",
+    "HFLLMBackend",
     "iter_prepared_batches",
     "prepare_llava_token_pair_batch",
+    "resolve_backend",
+    "TLensBackend",
     "text_batch_to_prepared_batch",
     "validate_prepared_batch",
 ]

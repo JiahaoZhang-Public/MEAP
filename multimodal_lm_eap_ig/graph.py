@@ -625,6 +625,18 @@ class Graph:
             graph.cfg.update({'n_layers': cfg.n_layers, 'n_heads': cfg.n_heads, 'parallel_attn_mlp':cfg.parallel_attn_mlp, 'd_model': cfg.d_model})
         elif isinstance(model_or_config, dict):
             graph.cfg.update(model_or_config)
+        elif all(
+            hasattr(model_or_config, attr)
+            for attr in ("n_layers", "n_heads", "parallel_attn_mlp", "d_model")
+        ):
+            graph.cfg.update(
+                {
+                    "n_layers": int(model_or_config.n_layers),
+                    "n_heads": int(model_or_config.n_heads),
+                    "parallel_attn_mlp": bool(model_or_config.parallel_attn_mlp),
+                    "d_model": int(model_or_config.d_model),
+                }
+            )
         else:
             raise ValueError(f"Invalid input type: {type(model_or_config)}")
             

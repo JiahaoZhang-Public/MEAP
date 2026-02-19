@@ -27,6 +27,8 @@ from multimodal_lm_eap_ig import (
     DEFAULT_BACKBONE_MODEL_ID,
     DEFAULT_MULTIMODAL_MODEL_ID,
     Graph,
+    HFLLMBackend,
+    TLensBackend,
     attribute,
     get_real_edge_scores,
     prepare_llava_token_pair_batch,
@@ -37,6 +39,7 @@ from multimodal_lm_eap_ig import (
 class RunConfig:
     model_id: str
     backbone_model_id: str
+    backend: str
     language_weights_source: str
     method: str
     ig_steps: int
@@ -54,6 +57,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-id", default=DEFAULT_MULTIMODAL_MODEL_ID)
     parser.add_argument("--backbone-model-id", default=DEFAULT_BACKBONE_MODEL_ID)
     parser.add_argument(
+        "--backend",
+        default="hf",
+        choices=["hf", "tlens"],
+        help="Runtime backend: hf (default) or tlens.",
+    )
+    parser.add_argument(
         "--language-weights-source",
         default="llava",
         choices=["llava", "backbone"],
@@ -61,7 +70,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--method",
-        default="EAP",
+        default="smoke",
         choices=["smoke", "EAP", "EAP-IG-inputs", "clean-corrupted", "EAP-IG-activations", "exact"],
         help="Attribution method.",
     )
@@ -127,7 +136,7 @@ def build_demo_prompts() -> Dict[str, List[str]]:
     }
 
 
-def load_llava_language_model_for_tlens(
+def load_llava_language_model(
     model_id: str,
     *,
     dtype: torch.dtype,
@@ -184,6 +193,37 @@ def load_llava_language_model_for_tlens(
     return hf_lm
 
 
+def load_hf_backbone(
+    *,
+    llava_model_id: str,
+    backbone_model_id: str,
+    language_weights_source: str,
+    dtype: torch.dtype,
+    device: str,
+    hf_token: Optional[str],
+):
+    kwargs: Dict[str, Any] = {}
+    if hf_token:
+        kwargs["token"] = hf_token
+
+    if language_weights_source == "llava":
+        model = load_llava_language_model(
+            llava_model_id,
+            dtype=dtype,
+            hf_token=hf_token,
+        )
+    else:
+        model = AutoModelForCausalLM.from_pretrained(
+            backbone_model_id,
+            torch_dtype=dtype,
+            **kwargs,
+        )
+
+    model = model.to(device=device)
+    model.eval()
+    return model
+
+
 def load_tlens_backbone(
     model_id: str,
     *,
@@ -199,7 +239,7 @@ def load_tlens_backbone(
         kwargs["token"] = hf_token
 
     if language_weights_source == "llava":
-        hf_lm = load_llava_language_model_for_tlens(
+        hf_lm = load_llava_language_model(
             llava_model_id,
             dtype=dtype,
             hf_token=hf_token,
@@ -256,19 +296,6 @@ def load_tlens_backbone(
     return model
 
 
-def make_metric_fn(tokenizer):
-    target_id, chosen_token = resolve_metric_token_id(tokenizer, preferred_token=" white")
-    print(f"Metric token: {chosen_token!r} (id={target_id})")
-
-    def metric(logits: torch.Tensor, clean_logits: torch.Tensor, batch) -> torch.Tensor:
-        del clean_logits
-        last_positions = (batch.input_lengths - 1).to(device=logits.device)
-        final_logits = logits[torch.arange(logits.size(0), device=logits.device), last_positions]
-        return final_logits[:, target_id].sum()
-
-    return metric
-
-
 def resolve_metric_token_id(tokenizer, preferred_token: str) -> tuple[int, str]:
     def encode_one(s: str) -> Optional[int]:
         ids = tokenizer.encode(s, add_special_tokens=False)
@@ -320,12 +347,18 @@ def main() -> None:
     if args.device == "cpu" and args.dtype == "float16":
         print("Warning: float16 on CPU is unsupported/unstable. Switching dtype to bfloat16.")
         args.dtype = "bfloat16"
+    if args.backend == "hf" and args.method != "smoke":
+        raise ValueError(
+            "HF backend currently supports `smoke` only in this stage. "
+            "Use --backend tlens for gradient-based methods."
+        )
 
     set_seed(args.seed)
 
     run_config = RunConfig(
         model_id=args.model_id,
         backbone_model_id=args.backbone_model_id,
+        backend=args.backend,
         language_weights_source=args.language_weights_source,
         method=args.method,
         ig_steps=args.ig_steps,
@@ -356,24 +389,48 @@ def main() -> None:
         backbone_model_id=args.backbone_model_id,
     )
 
-    print(
-        f"Loading TransformerLens backbone: {args.backbone_model_id} "
-        f"(weights={args.language_weights_source})"
-    )
     dtype = dtype_from_name(args.dtype)
-    model = load_tlens_backbone(
-        args.backbone_model_id,
-        tokenizer=processor.tokenizer,
-        device=args.device,
-        dtype=dtype,
-        llava_model_id=args.model_id,
-        language_weights_source=args.language_weights_source,
-        hf_token=args.hf_token,
-    )
 
-    graph = Graph.from_model(model)
+    if args.backend == "hf":
+        print(
+            f"Loading HF backbone: {args.backbone_model_id} "
+            f"(weights={args.language_weights_source})"
+        )
+        hf_model = load_hf_backbone(
+            llava_model_id=args.model_id,
+            backbone_model_id=args.backbone_model_id,
+            language_weights_source=args.language_weights_source,
+            dtype=dtype,
+            device=args.device,
+            hf_token=args.hf_token,
+        )
+        backend = HFLLMBackend(
+            hf_model,
+            tokenizer=processor.tokenizer,
+            device=torch.device(args.device),
+            dtype=dtype,
+        )
+        model_for_api = hf_model
+    else:
+        print(
+            f"Loading TransformerLens backbone: {args.backbone_model_id} "
+            f"(weights={args.language_weights_source})"
+        )
+        tl_model = load_tlens_backbone(
+            args.backbone_model_id,
+            tokenizer=processor.tokenizer,
+            device=args.device,
+            dtype=dtype,
+            llava_model_id=args.model_id,
+            language_weights_source=args.language_weights_source,
+            hf_token=args.hf_token,
+        )
+        backend = TLensBackend(tl_model)
+        model_for_api = tl_model
+
+    graph = Graph.from_model(backend.config)
     metric_token_id, metric_token_text = resolve_metric_token_id(
-        model.tokenizer,
+        processor.tokenizer,
         preferred_token=args.metric_token,
     )
     print(f"Metric token: {metric_token_text!r} (id={metric_token_id})")
@@ -384,9 +441,10 @@ def main() -> None:
         final_logits = logits[torch.arange(logits.size(0), device=logits.device), last_positions]
         return final_logits[:, metric_token_id].sum()
 
-    print(f"Running attribution method={args.method}")
+    print(f"Running attribution method={args.method} backend={args.backend}")
     scores = attribute(
-        model=model,
+        model=model_for_api,
+        backend=backend,
         graph=graph,
         batches=[prepared_batch],
         metric=metric,

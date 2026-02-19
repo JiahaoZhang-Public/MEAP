@@ -5,8 +5,6 @@ from typing import Any, Dict, Iterable, Iterator, Optional, Sequence, Tuple, Uni
 
 import torch
 from torch import Tensor
-from transformer_lens import HookedTransformer
-from transformer_lens.utils import get_attention_mask
 
 
 @dataclass
@@ -91,13 +89,30 @@ def validate_prepared_batch(batch: PreparedBatch) -> None:
         raise ValueError("modality placeholder layout must match between clean and corrupt")
 
 
+def _require_text_tokenizer_model(model: Any) -> None:
+    if not hasattr(model, "to_tokens"):
+        raise TypeError("Legacy text tuple batches require a model/backend exposing to_tokens(...)")
+    if not hasattr(model, "tokenizer"):
+        raise TypeError("Legacy text tuple batches require a model/backend exposing tokenizer")
+
+
+def _build_attention_mask_from_tokens(tokens: Tensor, tokenizer) -> Tensor:
+    pad_token_id = getattr(tokenizer, "pad_token_id", None)
+    if pad_token_id is None:
+        return torch.ones_like(tokens, dtype=torch.long)
+    return (tokens != int(pad_token_id)).to(dtype=torch.long)
+
+
 def _tokenize_text_batch(
-    model: HookedTransformer,
+    model: Any,
     inputs: Sequence[str],
     *,
     max_length: Optional[int] = None,
 ) -> Tuple[Tensor, Tensor]:
-    if max_length is not None:
+    _require_text_tokenizer_model(model)
+
+    old_n_ctx = None
+    if max_length is not None and hasattr(model, "cfg") and hasattr(model.cfg, "n_ctx"):
         old_n_ctx = model.cfg.n_ctx
         model.cfg.n_ctx = max_length
 
@@ -108,10 +123,10 @@ def _tokenize_text_batch(
         truncate=(max_length is not None),
     )
 
-    if max_length is not None:
+    if old_n_ctx is not None:
         model.cfg.n_ctx = old_n_ctx
 
-    attention_mask = get_attention_mask(model.tokenizer, tokens, prepend_bos=True)
+    attention_mask = _build_attention_mask_from_tokens(tokens, model.tokenizer)
     return tokens, attention_mask
 
 
@@ -132,7 +147,7 @@ def _pad_tokens_and_mask(
 
 
 def text_batch_to_prepared_batch(
-    model: HookedTransformer,
+    model: Any,
     clean_text: Sequence[str],
     corrupt_text: Sequence[str],
     labels: Any,
@@ -144,9 +159,9 @@ def text_batch_to_prepared_batch(
     corrupt_tokens, corrupt_mask = _tokenize_text_batch(model, corrupt_text, max_length=max_length)
 
     target_length = max(int(clean_tokens.shape[1]), int(corrupt_tokens.shape[1]))
-    pad_token_id = model.tokenizer.pad_token_id
+    pad_token_id = getattr(model.tokenizer, "pad_token_id", None)
     if pad_token_id is None:
-        pad_token_id = model.tokenizer.eos_token_id
+        pad_token_id = getattr(model.tokenizer, "eos_token_id", None)
     if pad_token_id is None:
         pad_token_id = 0
 
@@ -176,7 +191,7 @@ def text_batch_to_prepared_batch(
 
 
 def iter_prepared_batches(
-    model: HookedTransformer,
+    tokenization_model: Optional[Any],
     batches: Iterable[BatchLike],
     *,
     max_length: Optional[int] = None,
@@ -192,9 +207,15 @@ def iter_prepared_batches(
                 "Expected PreparedBatch or legacy (clean, corrupt, labels) tuple from batch iterable"
             )
 
+        if tokenization_model is None:
+            raise TypeError(
+                "Legacy text tuple batches require a tokenization-capable model/backend. "
+                "Provide PreparedBatch entries or pass a TLensBackend-backed model."
+            )
+
         clean_text, corrupt_text, labels = batch
         yield text_batch_to_prepared_batch(
-            model,
+            tokenization_model,
             clean_text,
             corrupt_text,
             labels,
