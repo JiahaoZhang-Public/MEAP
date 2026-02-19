@@ -25,16 +25,19 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument("--skip-pytest", action="store_true")
     parser.add_argument("--skip-ruff", action="store_true")
-    parser.add_argument("--skip-text-matrix", action="store_true")
+    parser.add_argument("--skip-smoke-hf-matrix", action="store_true")
 
-    parser.add_argument("--models", default="gpt2-small,Qwen/Qwen2-0.5B")
-    parser.add_argument("--methods", default="smoke,EAP-IG-inputs")
+    parser.add_argument(
+        "--text-models",
+        default="gpt2,distilgpt2,facebook/opt-125m,Qwen/Qwen2-0.5B,TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+    )
+    parser.add_argument(
+        "--multimodal-models",
+        default="Qwen/Qwen2-VL-2B,llava-hf/llava-1.5-7b-hf,HuggingFaceTB/SmolVLM-Instruct",
+    )
     parser.add_argument("--device", default="cuda" if _has_cuda() else "cpu")
     parser.add_argument("--dtype", default="float32", choices=["float16", "bfloat16", "float32"])
 
-    parser.add_argument("--run-qwen2-vl-smoke", action="store_true")
-    parser.add_argument("--qwen2-vl-model-id", default="Qwen/Qwen2-VL-2B")
-    parser.add_argument("--qwen2-vl-method", default="smoke")
     parser.add_argument("--hf-token", default=None)
 
     parser.add_argument("--quiet", action="store_true")
@@ -77,45 +80,31 @@ def main() -> None:
     if not args.skip_pytest:
         results.append(_run("pytest", [sys.executable, "-m", "pytest", "-q"]))
 
-    if not args.skip_text_matrix:
-        results.append(
-            _run(
-                "text_matrix",
-                [
-                    sys.executable,
-                    "scripts/test_backend_unified.py",
-                    "--levels",
-                    "model,method",
-                    "--models",
-                    args.models,
-                    "--methods",
-                    args.methods,
-                    "--device",
-                    args.device,
-                    "--dtype",
-                    args.dtype,
-                ],
-            )
-        )
-
-    if args.run_qwen2_vl_smoke:
-        command = [
+    if not args.skip_smoke_hf_matrix:
+        smoke_command = [
             sys.executable,
-            "scripts/e2e_qwen2_vl_smoke.py",
-            "--model-id",
-            args.qwen2_vl_model_id,
-            "--method",
-            args.qwen2_vl_method,
+            "scripts/smoke_hf_matrix.py",
+            "--text-models",
+            args.text_models,
+            "--multimodal-models",
+            args.multimodal_models,
             "--device",
             args.device,
             "--dtype",
             args.dtype,
+            "--output",
+            "reports/smoke_hf_matrix_stage.json",
         ]
         if args.hf_token is not None:
-            command.extend(["--hf-token", args.hf_token])
+            smoke_command.extend(["--hf-token", args.hf_token])
         if args.quiet:
-            command.append("--quiet")
-        results.append(_run("qwen2_vl_smoke", command))
+            smoke_command.append("--quiet")
+        results.append(
+            _run(
+                "smoke_hf_matrix",
+                smoke_command,
+            )
+        )
 
     report = {
         "all_passed": all(r.returncode == 0 for r in results),
