@@ -143,7 +143,11 @@ def _iter_decoder_backbone_candidates(model: torch.nn.Module) -> List[Tuple[str,
         _add("model.language_model.decoder", getattr(lm, "decoder", None))
 
     _add("model.model", getattr(model, "model", None))
+    _add("model.model.language_model", getattr(getattr(model, "model", None), "language_model", None))
+    _add("model.model.text_model", getattr(getattr(model, "model", None), "text_model", None))
     _add("model.model.decoder", getattr(getattr(model, "model", None), "decoder", None))
+    _add("model.text_model", getattr(model, "text_model", None))
+    _add("model.model.model", getattr(getattr(model, "model", None), "model", None))
     _add("model.transformer", getattr(model, "transformer", None))
     _add("model.decoder", getattr(model, "decoder", None))
 
@@ -575,20 +579,22 @@ class HFLLMBackend:
 
     def _normalize_config(self, model: torch.nn.Module) -> BackendConfig:
         cfg = model.config
+        text_cfg = getattr(cfg, "text_config", None)
+        source_cfg = text_cfg if text_cfg is not None else cfg
         d_model = (
-            getattr(cfg, "hidden_size", None)
-            if getattr(cfg, "hidden_size", None) is not None
-            else getattr(cfg, "n_embd", None)
+            getattr(source_cfg, "hidden_size", None)
+            if getattr(source_cfg, "hidden_size", None) is not None
+            else getattr(source_cfg, "n_embd", None)
         )
         n_layers = (
-            getattr(cfg, "num_hidden_layers", None)
-            if getattr(cfg, "num_hidden_layers", None) is not None
-            else getattr(cfg, "n_layer", None)
+            getattr(source_cfg, "num_hidden_layers", None)
+            if getattr(source_cfg, "num_hidden_layers", None) is not None
+            else getattr(source_cfg, "n_layer", None)
         )
         n_heads = (
-            getattr(cfg, "num_attention_heads", None)
-            if getattr(cfg, "num_attention_heads", None) is not None
-            else getattr(cfg, "n_head", None)
+            getattr(source_cfg, "num_attention_heads", None)
+            if getattr(source_cfg, "num_attention_heads", None) is not None
+            else getattr(source_cfg, "n_head", None)
         )
         missing_cfg = []
         if d_model is None:
@@ -604,7 +610,7 @@ class HFLLMBackend:
             )
 
         device, model_dtype = _first_parameter_device_dtype(self.model)
-        n_key_value_heads = getattr(cfg, "num_key_value_heads", None)
+        n_key_value_heads = getattr(source_cfg, "num_key_value_heads", None)
 
         return BackendConfig(
             device=device,
