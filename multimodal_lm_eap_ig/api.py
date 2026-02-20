@@ -36,6 +36,8 @@ def _resolve_pair_batch_preparer(
         return pair_batch_preparer
 
     if processor is None:
+        if processor_kwargs is not None:
+            raise ValueError("processor_kwargs requires processor=... to be provided")
         return None
 
     return HFProcessorAdapter(
@@ -85,9 +87,19 @@ def attribute_from_dataloader(
     max_length: Optional[int] = None,
     quiet: bool = False,
 ) -> AttributionRunResult:
-    """High-level attribution API: user provides metric + dataloader only."""
+    """High-level attribution API with user-managed data preparation.
+
+    Users should provide either:
+    1) dataloader entries that are already PreparedBatch, or
+    2) raw clean/corrupt entries and explicit processor=... / pair_batch_preparer=....
+    """
 
     backend_obj = resolve_backend(model, backend)
+    if max_length is not None:
+        raise ValueError(
+            "max_length is not applied by high-level API anymore. "
+            "Please truncate inside your processor/preparer."
+        )
     run_graph = graph if graph is not None else Graph.from_model(backend_obj.config)
 
     resolved_preparer = _resolve_pair_batch_preparer(
@@ -147,6 +159,11 @@ def evaluate_graph_from_dataloader(
     skip_clean: bool = True,
 ) -> Union[torch.Tensor, List[torch.Tensor]]:
     backend_obj = resolve_backend(model, backend)
+    if max_length is not None:
+        raise ValueError(
+            "max_length is not applied by high-level API anymore. "
+            "Please truncate inside your processor/preparer."
+        )
     resolved_preparer = _resolve_pair_batch_preparer(
         backend_obj,
         processor=processor,
@@ -197,6 +214,11 @@ def evaluate_baseline_from_dataloader(
     quiet: bool = False,
 ) -> Union[torch.Tensor, List[torch.Tensor]]:
     backend_obj = resolve_backend(model, backend)
+    if max_length is not None:
+        raise ValueError(
+            "max_length is not applied by high-level API anymore. "
+            "Please truncate inside your processor/preparer."
+        )
     resolved_preparer = _resolve_pair_batch_preparer(
         backend_obj,
         processor=processor,

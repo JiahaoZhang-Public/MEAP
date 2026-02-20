@@ -53,9 +53,12 @@ This document records the staged rollout requested for backend migration and mul
   - `evaluate_graph_from_dataloader`
   - `evaluate_baseline_from_dataloader`
   - `AttributionRunResult`
-- Added support for either:
-  - `processor=...` (auto-wrap into `HFProcessorAdapter`), or
-  - `pair_batch_preparer=...`.
+- API uses user-managed preparation with explicit control:
+  - provide `PreparedBatch` in dataloader, or
+  - provide `processor=...` explicitly, or
+  - provide `pair_batch_preparer=...` explicitly.
+  - `processor` and `pair_batch_preparer` are mutually exclusive.
+  - sequence truncation (`max_length`) is no longer applied by API; truncation must be done inside user preprocessing.
 
 ### Acceptance
 - Same dataloader interface can carry text-only, multimodal raw pairs, or pre-built `PreparedBatch`.

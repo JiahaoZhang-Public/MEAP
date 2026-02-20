@@ -68,7 +68,7 @@ class PairBatchPreparer(Protocol):
         ...
 
 
-BatchLike = Union[PreparedBatch, LegacyTextBatch, RawPairBatch, DictPairBatch, Mapping[str, Any]]
+BatchLike = Union[PreparedBatch, RawPairBatch, DictPairBatch, Mapping[str, Any], Tuple[Any, Any, Any], Tuple[Any, Any, Any, Any]]
 
 
 def _sequence_shape(inputs: Dict[str, Tensor]) -> Tuple[int, int]:
@@ -249,11 +249,19 @@ def iter_prepared_batches(
     max_length: Optional[int] = None,
     pair_batch_preparer: Optional[PairBatchPreparer] = None,
 ) -> Iterator[PreparedBatch]:
+    del tokenization_model
+    if max_length is not None:
+        raise ValueError(
+            "max_length is no longer applied in iter_prepared_batches. "
+            "Apply truncation in your processor/preparer before building PreparedBatch."
+        )
+
     def _prepare_raw_pair(clean: Any, corrupt: Any, labels: Any, meta: Optional[Dict[str, Any]] = None):
         if pair_batch_preparer is None:
             raise TypeError(
                 "Raw clean/corrupt batches require a pair_batch_preparer. "
-                "Pass HFProcessorAdapter(...) to iter_prepared_batches(..., pair_batch_preparer=...)."
+                "Pass processor=... via API or provide your custom preparer via "
+                "iter_prepared_batches(..., pair_batch_preparer=...)."
             )
         return pair_batch_preparer.prepare_batch(clean, corrupt, labels, meta=meta)
 
@@ -294,24 +302,5 @@ def iter_prepared_batches(
 
         clean_data, corrupt_data, labels = batch[:3]
         meta = batch[3] if len(batch) == 4 else None
-
-        if (
-            tokenization_model is not None
-            and isinstance(clean_data, Sequence)
-            and isinstance(corrupt_data, Sequence)
-            and not isinstance(clean_data, (str, bytes))
-            and not isinstance(corrupt_data, (str, bytes))
-            and all(isinstance(x, str) for x in clean_data)
-            and all(isinstance(x, str) for x in corrupt_data)
-        ):
-            yield text_batch_to_prepared_batch(
-                tokenization_model,
-                clean_data,
-                corrupt_data,
-                labels,
-                max_length=max_length,
-                meta=meta,
-            )
-            continue
 
         yield _prepare_raw_pair(clean_data, corrupt_data, labels, meta=meta)

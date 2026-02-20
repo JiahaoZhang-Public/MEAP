@@ -4,6 +4,7 @@ from transformers import LlamaConfig, LlamaForCausalLM
 
 from multimodal_lm_eap_ig.api import attribute_from_dataloader
 from multimodal_lm_eap_ig.backend import HFLLMBackend
+from multimodal_lm_eap_ig.preparer import HFProcessorAdapter
 
 
 class DummyTokenizer:
@@ -78,6 +79,41 @@ def test_attribute_from_dataloader_supports_raw_batches_with_processor():
     assert torch.all(result.scores == 0)
 
 
+def test_attribute_from_dataloader_supports_raw_batches_with_custom_preparer():
+    model = LlamaForCausalLM(
+        LlamaConfig(
+            hidden_size=16,
+            intermediate_size=32,
+            num_hidden_layers=1,
+            num_attention_heads=4,
+            num_key_value_heads=2,
+            vocab_size=64,
+            max_position_embeddings=32,
+        )
+    )
+    backend = HFLLMBackend(model)
+
+    dataloader = [
+        {
+            "clean": [{"text": "a b"}],
+            "corrupt": [{"text": "c d"}],
+            "labels": torch.tensor([0]),
+        }
+    ]
+    result = attribute_from_dataloader(
+        model=model,
+        backend=backend,
+        dataloader=dataloader,
+        metric=_metric,
+        pair_batch_preparer=HFProcessorAdapter(
+            processor=DummyProcessor(),
+            device=backend.config.device,
+        ),
+        method="smoke",
+    )
+    assert result.scores.shape == (result.graph.n_forward, result.graph.n_backward)
+
+
 def test_attribute_from_dataloader_rejects_processor_and_preparer_together():
     model = LlamaForCausalLM(
         LlamaConfig(
@@ -108,6 +144,41 @@ def test_attribute_from_dataloader_rejects_processor_and_preparer_together():
             dataloader=dataloader,
             metric=_metric,
             processor=processor,
-            pair_batch_preparer=object(),
+            pair_batch_preparer=HFProcessorAdapter(
+                processor=processor,
+                device=backend.config.device,
+            ),
+            method="smoke",
+        )
+
+
+def test_attribute_from_dataloader_rejects_max_length_flag():
+    model = LlamaForCausalLM(
+        LlamaConfig(
+            hidden_size=16,
+            intermediate_size=32,
+            num_hidden_layers=1,
+            num_attention_heads=4,
+            num_key_value_heads=2,
+            vocab_size=64,
+            max_position_embeddings=32,
+        )
+    )
+    backend = HFLLMBackend(model)
+    dataloader = [
+        {
+            "clean": [{"text": "a b"}],
+            "corrupt": [{"text": "c d"}],
+            "labels": torch.tensor([0]),
+        }
+    ]
+    with pytest.raises(ValueError, match="max_length is not applied"):
+        _ = attribute_from_dataloader(
+            model=model,
+            backend=backend,
+            dataloader=dataloader,
+            metric=_metric,
+            processor=DummyProcessor(),
+            max_length=16,
             method="smoke",
         )
