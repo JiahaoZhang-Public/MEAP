@@ -2,9 +2,9 @@ import torch
 from transformer_lens import HookedTransformer, HookedTransformerConfig
 from transformers import GPT2Config, GPT2LMHeadModel
 
-from multimodal_lm_eap_ig.backend import HFLLMBackend, TLensBackend
-from multimodal_lm_eap_ig.graph import Graph
-from multimodal_lm_eap_ig.utils import forward_with_hooks, resolve_run_inputs
+from meap.backend import HFLLMBackend, TLensBackend
+from meap.graph import Graph
+from meap.utils import forward_with_hooks, resolve_run_inputs
 
 
 def _build_tiny_gpt2_models() -> tuple[GPT2LMHeadModel, HookedTransformer]:

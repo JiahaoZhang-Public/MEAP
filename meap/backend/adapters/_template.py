@@ -1,7 +1,7 @@
 """Template for adding a new HF architecture adapter.
 
 Five-minute onboarding checklist:
-1. Copy this file to `multimodal_lm_eap_ig/backend/adapters/<arch>_like.py`.
+1. Copy this file to `meap/backend/adapters/<arch>_like.py`.
 2. Rename class and set:
    - `name`
    - `arch_kind`
@@ -16,13 +16,13 @@ Five-minute onboarding checklist:
    - `qkv_hook_modules`
    - `projection_spec`
 4. Register the adapter:
-   - add export in `multimodal_lm_eap_ig/backend/adapters/__init__.py`
+   - add export in `meap/backend/adapters/__init__.py`
    - include adapter class in `_default_adapter_classes()` inside
-     `multimodal_lm_eap_ig/backend/registry.py`
+     `meap/backend/registry.py`
 5. Run required checks:
    - `python scripts/inspect_adapter_registry.py --model-id <model_id>`
    - `python scripts/smoke_hf_matrix.py --text-models <model_id> --multimodal-models ""`
-   - `ruff check multimodal_lm_eap_ig tests scripts`
+   - `ruff check meap tests scripts`
    - `pytest -q`
 """
 

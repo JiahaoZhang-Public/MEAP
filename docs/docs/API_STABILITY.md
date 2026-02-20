@@ -1,11 +1,11 @@
 # API Stability (v1)
 
-This page defines the supported package surface for `mm-eap` v1.
+This page defines the supported package surface for `meap` v1.
 
 ## Stable Public API
 
 Primary module:
-- `multimodal_lm_eap_ig.api`
+- `meap.api`
 
 Stable symbols:
 - `AttributionRunResult`
@@ -24,9 +24,9 @@ Stable package-level objects:
 
 The following modules are implementation detail APIs and may change in minor releases:
 
-- `multimodal_lm_eap_ig.attribute`
-- `multimodal_lm_eap_ig.evaluate`
-- `multimodal_lm_eap_ig.utils`
+- `meap.attribute`
+- `meap.evaluate`
+- `meap.utils`
 
 ## Deprecation Policy
 
@@ -49,4 +49,4 @@ Symbols:
 
 Migration guidance:
 - Import these from internal modules only if you need low-level control.
-- Prefer high-level APIs in `multimodal_lm_eap_ig.api` for forward compatibility.
+- Prefer high-level APIs in `meap.api` for forward compatibility.

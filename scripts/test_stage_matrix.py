@@ -228,7 +228,7 @@ def main() -> None:
         command_rows.append(
             _run(
                 "ruff",
-                [sys.executable, "-m", "ruff", "check", "multimodal_lm_eap_ig", "tests", "scripts"],
+                [sys.executable, "-m", "ruff", "check", "meap", "tests", "scripts"],
             )
         )
 

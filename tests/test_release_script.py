@@ -27,7 +27,7 @@ def test_notes_renders_template(tmp_path):
 def test_set_version_updates_pyproject(monkeypatch, tmp_path):
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text(
-        '[project]\nname = "mm-eap"\nversion = "1.0.0.dev1"\n',
+        '[project]\nname = "meap"\nversion = "1.0.0.dev1"\n',
         encoding="utf-8",
     )
     monkeypatch.setattr(release_script, "PYPROJECT_PATH", pyproject)

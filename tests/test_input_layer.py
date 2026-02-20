@@ -1,8 +1,8 @@
 import pytest
 import torch
 
-from multimodal_lm_eap_ig.batch import iter_prepared_batches
-from multimodal_lm_eap_ig.preparer import HFProcessorAdapter
+from meap.batch import iter_prepared_batches
+from meap.preparer import HFProcessorAdapter
 
 
 class DummyTokenizer:

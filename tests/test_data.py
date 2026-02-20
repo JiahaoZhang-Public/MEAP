@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from multimodal_lm_eap_ig.batch import PreparedBatch, validate_prepared_batch
+from meap.batch import PreparedBatch, validate_prepared_batch
 
 
 def _build_batch():

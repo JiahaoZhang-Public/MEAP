@@ -2,10 +2,10 @@
 # GLOBALS                                                                       #
 #################################################################################
 
-PROJECT_NAME = multimodal-lm-eap-ig
+PROJECT_NAME = meap
 PYTHON_VERSION = 3.10
 PYTHON_INTERPRETER = python
-RELEASE_VERSION ?= v1.0.0-rc1
+RELEASE_VERSION ?= v1.1.0
 
 #################################################################################
 # COMMANDS                                                                      #

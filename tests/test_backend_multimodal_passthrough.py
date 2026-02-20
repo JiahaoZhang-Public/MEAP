@@ -1,7 +1,7 @@
 import torch
 from transformers import LlamaConfig, LlamaForCausalLM
 
-from multimodal_lm_eap_ig.backend import HFLLMBackend
+from meap.backend import HFLLMBackend
 
 
 class TinyQwen2VLLikeModel(torch.nn.Module):

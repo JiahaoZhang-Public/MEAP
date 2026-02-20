@@ -2,36 +2,29 @@
 
 All notable changes to this project are documented here.
 
-## [1.0.0-rc1] - Planned
+## [1.1.0] - 2026-02-20
 
 ### Breaking
-- Package identity moved to `mm-eap` (PyPI) while keeping import path `multimodal_lm_eap_ig`.
-- Public API surface is now explicitly stabilized around `multimodal_lm_eap_ig.api` and top-level exports.
-- Internal modules are marked unstable (`attribute.py`, `evaluate.py`, `utils.py`).
-- Top-level low-level helpers are deprecated (since `1.0.0`, planned removal in `1.2.0`).
+- Project identity renamed:
+  - GitHub repository: `MEAP`
+  - PyPI package: `meap`
+  - Python import path: `meap` (old `multimodal_lm_eap_ig` removed)
 
 ### Features
+- Public API surface stabilized around `meap.api` and top-level `meap` exports.
 - Hugging Face backend architecture adapter registry with diagnostics (`llama_like`, `gpt2_like`, `opt_like`, `falcon_like`, `mpt_like`).
 - Unified input layer supporting:
   - prebuilt `PreparedBatch`
   - raw clean/corrupt pairs via `processor`
   - raw clean/corrupt pairs via `pair_batch_preparer`
 - Multimodal language-trunk attribution support (smoke-first).
-- Unified stage matrix tooling for:
-  - text parity (vendor/TLens/HF)
-  - multimodal smoke matrix
-- Versioned report schemas for parity/smoke/stage outputs.
+- Unified matrix tooling for text parity (vendor/TLens/HF) and multimodal smoke.
+- Versioned report schemas and release gating utilities.
 
 ### Fixes
-- Qwen2 alignment issues between backend paths reduced and parity workflow hardened.
-- HF backend diagnostics improved with selected backbone path, adapter, and failed attempt hints.
-- CI hardened with lint/type/test/package gates and tiny smoke gate.
-
-## [1.0.0] - Planned
-
-### Release
-- Promote `v1.0.0-rc1` after regression validation.
-- Keep API/deprecation contracts unchanged from `v1.0.0-rc1`.
+- Qwen2 alignment between backend paths improved and parity workflow hardened.
+- HF backend diagnostics now expose selected backbone path, adapter, and failed-attempt hints.
+- CI quality gates hardened with lint/type/test/package checks.
 
 ## [0.3.0] - 2026-02-20
 

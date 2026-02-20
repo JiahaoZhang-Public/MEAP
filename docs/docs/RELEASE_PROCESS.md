@@ -1,6 +1,6 @@
 # Release Process (v1.0.0)
 
-This document defines the scripted release flow for `mm-eap`.
+This document defines the scripted release flow for `meap`.
 
 ## Release Stages
 

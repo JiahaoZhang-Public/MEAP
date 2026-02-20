@@ -12,10 +12,10 @@ This document records the staged rollout requested for backend migration and mul
 - Add processor-based preparation for non-text or multimodal samples.
 
 ### Implemented
-- `multimodal_lm_eap_ig.batch`
+- `meap.batch`
   - Added `RawPairBatch` and dict/tuple raw-pair ingestion support in `iter_prepared_batches`.
   - Added `PairBatchPreparer` protocol for pluggable preprocessing.
-- `multimodal_lm_eap_ig.preparer`
+- `meap.preparer`
   - Added `HFProcessorAdapter`.
   - Added `prepare_pair_batch_with_processor`.
   - Kept `prepare_llava_token_pair_batch` as backward-compatible wrapper over the new adapter.
@@ -34,7 +34,7 @@ This document records the staged rollout requested for backend migration and mul
 - Support decoder extraction from language-model wrappers used by multimodal models.
 
 ### Implemented
-- `multimodal_lm_eap_ig.backend`
+- `meap.backend`
   - `HFLLMBackend.prepare_inputs` now forwards arbitrary tensor/non-tensor kwargs (for example `pixel_values`, `image_grid_thw`).
   - Added decoder backbone resolution for `model.language_model` wrappers.
 - Added script:
@@ -50,7 +50,7 @@ This document records the staged rollout requested for backend migration and mul
 - User-facing API where caller provides `metric` + `dataloader`; preprocessing route is resolved internally.
 
 ### Implemented
-- Added `multimodal_lm_eap_ig.api`:
+- Added `meap.api`:
   - `attribute_from_dataloader`
   - `evaluate_graph_from_dataloader`
   - `evaluate_baseline_from_dataloader`
@@ -93,18 +93,18 @@ This document records the staged rollout requested for backend migration and mul
 
 ### Implemented
 - Backend split from monolithic file into package layout:
-  - `multimodal_lm_eap_ig/backend/base.py`
-  - `multimodal_lm_eap_ig/backend/registry.py`
-  - `multimodal_lm_eap_ig/backend/hf_backend.py`
-  - `multimodal_lm_eap_ig/backend/tlens_backend.py`
-  - `multimodal_lm_eap_ig/backend/adapters/*`
+  - `meap/backend/base.py`
+  - `meap/backend/registry.py`
+  - `meap/backend/hf_backend.py`
+  - `meap/backend/tlens_backend.py`
+  - `meap/backend/adapters/*`
 - Added architecture adapters:
   - `llama_like`, `gpt2_like`, `opt_like`, `falcon_like`, `mpt_like`
 - Added adapter registration/diagnostics APIs:
   - `register_architecture_adapter`
   - `inspect_model_architecture`
 - Added template for new adapters:
-  - `multimodal_lm_eap_ig/backend/adapters/_template.py`
+  - `meap/backend/adapters/_template.py`
 - Added tests:
   - `tests/test_adapter_registry.py`
   - `tests/test_adapter_template_contract.py`
@@ -122,7 +122,7 @@ This document records the staged rollout requested for backend migration and mul
 ## Recommended Validation Commands
 
 ```bash
-ruff check multimodal_lm_eap_ig tests scripts
+ruff check meap tests scripts
 pytest -q
 python scripts/smoke_hf_matrix.py --text-models gpt2,distilgpt2,facebook/opt-125m --multimodal-models Qwen/Qwen2-VL-2B --device cpu --dtype bfloat16
 python scripts/test_stage_matrix.py --text-models gpt2 --multimodal-models Qwen/Qwen2-VL-2B --device cpu --dtype bfloat16
@@ -138,9 +138,9 @@ python scripts/test_stage_matrix.py --text-models gpt2 --multimodal-models Qwen/
 - Added onboarding guide:
   - `docs/docs/NEW_MODEL_ONBOARDING.md`
 - Strengthened adapter template documentation:
-  - `multimodal_lm_eap_ig/backend/adapters/_template.py`
+  - `meap/backend/adapters/_template.py`
 - Linked onboarding entry from package docs:
-  - `multimodal_lm_eap_ig/README.md`
+  - `meap/README.md`
   - `docs/docs/SUPPORTED_MODELS.md`
 
 ### Acceptance
@@ -158,14 +158,14 @@ python scripts/test_stage_matrix.py --text-models gpt2 --multimodal-models Qwen/
 
 ### Implemented
 - Added explicit stable API module contract in:
-  - `multimodal_lm_eap_ig/api.py`
-  - `multimodal_lm_eap_ig/__init__.py`
+  - `meap/api.py`
+  - `meap/__init__.py`
 - Added deprecation warnings (deprecated in `1.0.0`, planned removal in `1.2.0`) for
   low-level top-level symbols.
 - Marked internal modules with internal-use docstrings:
-  - `multimodal_lm_eap_ig/attribute.py`
-  - `multimodal_lm_eap_ig/evaluate.py`
-  - `multimodal_lm_eap_ig/utils.py`
+  - `meap/attribute.py`
+  - `meap/evaluate.py`
+  - `meap/utils.py`
 - Added API stability documentation:
   - `docs/docs/API_STABILITY.md`
 - Added API contract tests:

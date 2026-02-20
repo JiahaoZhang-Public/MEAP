@@ -2,14 +2,14 @@ import pytest
 import torch
 from transformers import LlamaConfig, LlamaForCausalLM
 
-from multimodal_lm_eap_ig.api import (
+from meap.api import (
     attribute_from_dataloader,
     evaluate_baseline_from_dataloader,
     evaluate_graph_from_dataloader,
 )
-from multimodal_lm_eap_ig.backend import HFLLMBackend
-from multimodal_lm_eap_ig.graph import Graph
-from multimodal_lm_eap_ig.preparer import HFProcessorAdapter
+from meap.backend import HFLLMBackend
+from meap.graph import Graph
+from meap.preparer import HFProcessorAdapter
 
 
 class DummyTokenizer:

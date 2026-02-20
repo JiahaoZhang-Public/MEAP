@@ -1,6 +1,6 @@
-# mm-eap
+# meap
 
-`mm-eap` (Multimodal Edge Attribution Patching) is a Python package for running the EAP-family attribution methods on Hugging Face language-model backbones, including multimodal models via language-trunk attribution.
+`meap` (Multimodal Edge Attribution Patching) is a Python package for running the EAP-family attribution methods on Hugging Face language-model backbones, including multimodal models via language-trunk attribution.
 
 ## Upstream Reference
 
@@ -11,13 +11,13 @@ This repository's initial code scaffold was directly copied from the original EA
 Import path:
 
 ```python
-import multimodal_lm_eap_ig
+import meap
 ```
 
 PyPI package name:
 
 ```bash
-pip install mm-eap
+pip install meap
 ```
 
 ## Quick Start (10 Minutes)
@@ -25,8 +25,8 @@ pip install mm-eap
 ### 1) Install
 
 ```bash
-conda create -n mm-eap-ig python=3.10 -y
-conda activate mm-eap-ig
+conda create -n meap-ig python=3.10 -y
+conda activate meap-ig
 pip install -e ".[dev,multimodal,viz,docs]"
 ```
 
@@ -53,7 +53,7 @@ python scripts/api_minimal_examples.py \
 
 ## Stable API
 
-Stable high-level API lives in `multimodal_lm_eap_ig.api`.
+Stable high-level API lives in `meap.api`.
 
 - `attribute_from_dataloader`
 - `evaluate_graph_from_dataloader`
@@ -68,7 +68,7 @@ API stability policy and deprecations:
 ### Entrypoint A: `PreparedBatch` (fully user-prepared inputs)
 
 ```python
-from multimodal_lm_eap_ig import HFLLMBackend, attribute_from_dataloader
+from meap import HFLLMBackend, attribute_from_dataloader
 
 backend = HFLLMBackend(model, tokenizer=tokenizer)
 result = attribute_from_dataloader(
@@ -83,7 +83,7 @@ result = attribute_from_dataloader(
 ### Entrypoint B: raw clean/corrupt + `processor` or `pair_batch_preparer`
 
 ```python
-from multimodal_lm_eap_ig import HFLLMBackend, attribute_from_dataloader
+from meap import HFLLMBackend, attribute_from_dataloader
 
 backend = HFLLMBackend(model, tokenizer=getattr(processor, "tokenizer", None))
 result = attribute_from_dataloader(
@@ -174,16 +174,16 @@ python scripts/real_attribution_modalities.py \
 
 Detailed per-model examples are available under `examples/`:
 
-- `/Users/jiahaozhang/Repo/project/multimodal-lm-eap-ig/examples/text/gpt2.py`
-- `/Users/jiahaozhang/Repo/project/multimodal-lm-eap-ig/examples/image/Qwen2-VL-2B.py`
-- `/Users/jiahaozhang/Repo/project/multimodal-lm-eap-ig/examples/audio/ultravox.py`
+- `examples/text/gpt2.py`
+- `examples/image/Qwen2-VL-2B.py`
+- `examples/audio/ultravox.py`
 
 Each script explicitly demonstrates:
 1. raw data -> process -> model inputs
 2. attribution
 3. graph visualization export
 
-See `/Users/jiahaozhang/Repo/project/multimodal-lm-eap-ig/examples/README.md` for usage and outputs.
+See `examples/README.md` for usage and outputs.
 
 ## Supported Methods
 
@@ -200,7 +200,7 @@ See `/Users/jiahaozhang/Repo/project/multimodal-lm-eap-ig/examples/README.md` fo
 - Some architectures still require adapter extension for full method parity.
 - `exact` can be expensive; parity scripts support skip-by-edge-threshold policy.
 
-## Release Engineering (v1.0.0)
+## Release Engineering (v1.1.0)
 
 Changelog:
 - `CHANGELOG.md`
@@ -210,21 +210,21 @@ Scripted release flow:
 - `scripts/release/README.md`
 - `docs/docs/RELEASE_PROCESS.md`
 
-Typical RC flow:
+Typical release flow:
 
 ```bash
-python scripts/release/release.py set-version --version 1.0.0rc1
+python scripts/release/release.py set-version --version 1.1.0
 python scripts/release/release.py gate --clean-dist
-python scripts/release/release.py notes --version v1.0.0-rc1
-python scripts/release/release.py tag --version v1.0.0-rc1 --push
+python scripts/release/release.py notes --version v1.1.0
+python scripts/release/release.py tag --version v1.1.0 --push
 ```
 
-After RC validation, repeat notes/tag for `v1.0.0`.
+For RC releases, use tags like `v1.1.0-rc1`.
 
 ## Docs Map
 
 Active docs:
-- Package guide: `multimodal_lm_eap_ig/README.md`
+- Package guide: `meap/README.md`
 - API stability: `docs/docs/API_STABILITY.md`
 - Compatibility matrix: `docs/docs/COMPATIBILITY_MATRIX.md`
 - Supported models: `docs/docs/SUPPORTED_MODELS.md`
@@ -240,7 +240,7 @@ Archived historical docs (cache):
 ## Development
 
 ```bash
-ruff check multimodal_lm_eap_ig tests scripts
+ruff check meap tests scripts
 pytest -q
 mypy
 ```

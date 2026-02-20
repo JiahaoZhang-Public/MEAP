@@ -4,10 +4,10 @@ import pytest
 import torch
 from transformer_lens import HookedTransformer, HookedTransformerConfig
 
-from multimodal_lm_eap_ig.backend import TLensBackend
-from multimodal_lm_eap_ig.graph import Graph
+from meap.backend import TLensBackend
+from meap.graph import Graph
 
-attribute_module = importlib.import_module("multimodal_lm_eap_ig.attribute")
+attribute_module = importlib.import_module("meap.attribute")
 
 
 def _tiny_tlens_model(*, requires_grad: bool) -> HookedTransformer:

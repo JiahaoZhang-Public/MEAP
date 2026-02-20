@@ -1,14 +1,14 @@
 import pytest
 from transformers import LlamaConfig, LlamaForCausalLM
 
-from multimodal_lm_eap_ig.backend import (
+from meap.backend import (
     HFLLMBackend,
     get_registered_architecture_adapters,
     inspect_model_architecture,
     register_architecture_adapter,
     reset_architecture_adapter_registry,
 )
-from multimodal_lm_eap_ig.backend.adapters.llama_like import LlamaLikeAdapter
+from meap.backend.adapters.llama_like import LlamaLikeAdapter
 
 
 class _PriorityLlamaAdapter(LlamaLikeAdapter):

@@ -27,7 +27,7 @@ jobs:
           pip install -e .[dev]
 
       - name: Ruff
-        run: ruff check multimodal_lm_eap_ig tests scripts
+        run: ruff check meap tests scripts
 
       - name: Mypy (public API)
         run: mypy

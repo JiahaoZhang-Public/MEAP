@@ -38,7 +38,7 @@ def _validate_version(version: str) -> None:
 
 
 def cmd_gate(args: argparse.Namespace) -> None:
-    _run([sys.executable, "-m", "ruff", "check", "multimodal_lm_eap_ig", "tests", "scripts"])
+    _run([sys.executable, "-m", "ruff", "check", "meap", "tests", "scripts"])
     _run([sys.executable, "-m", "mypy"])
     _run([sys.executable, "-m", "pytest", "-q"])
     if not args.skip_build:
@@ -123,7 +123,7 @@ def cmd_set_version(args: argparse.Namespace) -> None:
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Release engineering utilities for mm-eap.")
+    parser = argparse.ArgumentParser(description="Release engineering utilities for meap.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     gate = subparsers.add_parser("gate", help="Run release gate: ruff + mypy + pytest (+ build/check).")
