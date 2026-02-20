@@ -145,11 +145,15 @@ python scripts/api_minimal_examples.py \
 ```bash
 python scripts/api_minimal_examples.py \
   --example audio-ultravox \
-  --audio-path /path/to/audio.wav \
   --method smoke \
   --device cpu \
   --dtype float32
 ```
+
+Optional overrides for the default audio smoke input:
+- `--audio-path /path/to/audio.wav`
+- `--audio-url https://.../your_audio.mp3` (used when `--audio-path` is empty)
+- `--audio-prompt "Generate the caption in English:"`
 
 ## Supported Methods
 
