@@ -7,6 +7,8 @@ import json
 from pathlib import Path
 import sys
 from typing import Any, Dict, Mapping, Optional
+from urllib.parse import urlparse
+from urllib.request import urlretrieve
 
 import numpy as np
 import torch
@@ -30,6 +32,10 @@ from multimodal_lm_eap_ig import (  # noqa: E402
 )
 from multimodal_lm_eap_ig.batch import PairBatchPreparer, validate_prepared_batch  # noqa: E402
 
+DEFAULT_AUDIO_PROMPT = "Generate the caption in English:"
+DEFAULT_AUDIO_URL = "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-Audio/glass-breaking-151256.mp3"
+ULTRAVOX_AUDIO_PLACEHOLDER = "<|audio|>"
+
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Minimal API examples for text/image/audio attribution.")
@@ -46,7 +52,13 @@ def _parse_args() -> argparse.Namespace:
         choices=["smoke", "EAP", "EAP-IG-inputs", "clean-corrupted", "EAP-IG-activations", "exact"],
     )
     parser.add_argument("--hf-token", default=None)
-    parser.add_argument("--audio-path", default="")
+    parser.add_argument("--audio-path", default="", help="Optional local audio path for audio-ultravox example.")
+    parser.add_argument("--audio-url", default=DEFAULT_AUDIO_URL, help="Audio URL used when --audio-path is empty.")
+    parser.add_argument(
+        "--audio-prompt",
+        default=DEFAULT_AUDIO_PROMPT,
+        help="User prompt text used for default audio-ultravox test.",
+    )
     parser.add_argument("--output", default="", help="Optional path to write JSON summary.")
     return parser.parse_args()
 
@@ -133,6 +145,35 @@ def _print_summary(summary: Dict[str, Any]) -> None:
     print(json.dumps(summary, indent=2, ensure_ascii=False))
 
 
+def _resolve_audio_path(args: argparse.Namespace) -> str:
+    if args.audio_path:
+        return args.audio_path
+
+    parsed = urlparse(args.audio_url)
+    filename = Path(parsed.path).name or "sample_audio.mp3"
+    download_path = REPO_ROOT / ".cache" / "demo_audio" / filename
+    download_path.parent.mkdir(parents=True, exist_ok=True)
+    if not download_path.exists():
+        print(f"Downloading default audio from {args.audio_url} -> {download_path}")
+        urlretrieve(args.audio_url, download_path)
+    return str(download_path)
+
+
+def _normalize_ultravox_user_prompt(prompt: str, *, audio_placeholder: str) -> str:
+    placeholder = str(audio_placeholder).strip() or ULTRAVOX_AUDIO_PLACEHOLDER
+    text = str(prompt).strip()
+    for token in ("<|audio_bos|>", "<|audio_eos|>", "<|AUDIO|>", ULTRAVOX_AUDIO_PLACEHOLDER):
+        if token == placeholder:
+            continue
+        text = text.replace(token, " ")
+
+    segments = [seg.strip() for seg in text.split(placeholder)]
+    merged = " ".join(seg for seg in segments if seg)
+    if merged:
+        return f"{placeholder}\n{merged}"
+    return placeholder
+
+
 def _run_text_gpt2(args: argparse.Namespace) -> Dict[str, Any]:
     model_id = "openai-community/gpt2"
     tokenizer = AutoTokenizer.from_pretrained(model_id, token=args.hf_token)
@@ -194,19 +235,28 @@ def _run_text_qwen2(args: argparse.Namespace) -> Dict[str, Any]:
 
 def _qwen2_vl_prompt(processor, question: str) -> str:
     if hasattr(processor, "apply_chat_template"):
-        prompt = processor.apply_chat_template(
+        message_variants = [
+            [{"type": "image"}, {"type": "text", "text": question}],
             [
                 {
                     "role": "user",
                     "content": [{"type": "image"}, {"type": "text", "text": question}],
                 }
             ],
-            tokenize=False,
-            add_generation_prompt=True,
-        )
-        if isinstance(prompt, str) and prompt.strip():
-            return prompt
-    return f"<image>\n{question}"
+        ]
+        for messages in message_variants:
+            try:
+                prompt = processor.apply_chat_template(
+                    messages,
+                    tokenize=False,
+                    add_generation_prompt=True,
+                )
+            except Exception:
+                continue
+            if isinstance(prompt, str) and prompt.strip():
+                if any(tok in prompt for tok in ("<|image_pad|>", "<image>", "<im_patch>", "<image_pad>")):
+                    return prompt
+    return f"<|vision_start|><|image_pad|><|vision_end|>\n{question}"
 
 
 def _run_image_qwen2_vl(args: argparse.Namespace) -> Dict[str, Any]:
@@ -289,10 +339,11 @@ class UltravoxPairPreparer(PairBatchPreparer):
 
 
 def _run_audio_ultravox(args: argparse.Namespace) -> Dict[str, Any]:
-    if not args.audio_path:
-        raise ValueError("--audio-path is required for audio-ultravox example.")
-
     import librosa
+
+    audio_path = _resolve_audio_path(args)
+    audio, sr = librosa.load(audio_path, sr=16000)
+    prompt = str(args.audio_prompt).strip() or DEFAULT_AUDIO_PROMPT
 
     model_id = "fixie-ai/ultravox-v0_5-llama-3_2-1b"
     model = AutoModel.from_pretrained(
@@ -307,15 +358,19 @@ def _run_audio_ultravox(args: argparse.Namespace) -> Dict[str, Any]:
     infer_pipe = pipeline(model=model_id, trust_remote_code=True, token=args.hf_token)
     backend = HFLLMBackend(model)
     pair_preparer = UltravoxPairPreparer(infer_pipe=infer_pipe, device=backend.config.device)
-
-    audio, sr = librosa.load(args.audio_path, sr=16000)
+    audio_placeholder = getattr(getattr(infer_pipe, "processor", None), "audio_placeholder", ULTRAVOX_AUDIO_PLACEHOLDER)
+    clean_user_prompt = _normalize_ultravox_user_prompt(prompt, audio_placeholder=audio_placeholder)
+    corrupt_user_prompt = _normalize_ultravox_user_prompt(
+        "Transcribe the spoken content.",
+        audio_placeholder=audio_placeholder,
+    )
     turns_clean = [
         {"role": "system", "content": "You are concise."},
-        {"role": "user", "content": "Summarize the spoken content in one sentence."},
+        {"role": "user", "content": clean_user_prompt},
     ]
     turns_corrupt = [
         {"role": "system", "content": "You are concise."},
-        {"role": "user", "content": "Transcribe the spoken content."},
+        {"role": "user", "content": corrupt_user_prompt},
     ]
     dataloader = [
         {

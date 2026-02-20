@@ -248,7 +248,6 @@ python scripts/api_minimal_examples.py \
 ```bash
 python scripts/api_minimal_examples.py \
   --example audio-ultravox \
-  --audio-path /path/to/audio.wav \
   --method smoke \
   --device cpu \
   --dtype float32 \
@@ -257,6 +256,7 @@ python scripts/api_minimal_examples.py \
 
 Notes:
 - Ultravox example uses custom `pair_batch_preparer` (non-standard audio pipeline preprocessing).
+- If `--audio-path` is omitted, the script downloads a default demo mp3 (`glass-breaking-151256.mp3`) and uses prompt `Generate the caption in English:`.
 - This model may require access to upstream gated dependencies; use `--hf-token` with proper permissions.
 
 ## PR4 Test Matrix

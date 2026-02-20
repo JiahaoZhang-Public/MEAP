@@ -145,11 +145,45 @@ python scripts/api_minimal_examples.py \
 ```bash
 python scripts/api_minimal_examples.py \
   --example audio-ultravox \
-  --audio-path /path/to/audio.wav \
   --method smoke \
   --device cpu \
   --dtype float32
 ```
+
+Optional overrides for the default audio smoke input:
+- `--audio-path /path/to/audio.wav`
+- `--audio-url https://.../your_audio.mp3` (used when `--audio-path` is empty)
+- `--audio-prompt "Generate the caption in English:"`
+
+## Real Attribution + Graph Visualization
+
+Run one command to execute real attribution experiments for text/image/audio and export graph
+artifacts (`full.json`, `topn.json`, `topn.png`) per modality:
+
+```bash
+python scripts/real_attribution_modalities.py \
+  --modalities text,image,audio \
+  --method EAP \
+  --device cpu \
+  --dtype float32 \
+  --topn 200 \
+  --output-dir reports/real_attribution
+```
+
+## Per-Modality Example Scripts
+
+Detailed per-model examples are available under `examples/`:
+
+- `/Users/jiahaozhang/Repo/project/multimodal-lm-eap-ig/examples/text/gpt2.py`
+- `/Users/jiahaozhang/Repo/project/multimodal-lm-eap-ig/examples/image/Qwen2-VL-2B.py`
+- `/Users/jiahaozhang/Repo/project/multimodal-lm-eap-ig/examples/audio/ultravox.py`
+
+Each script explicitly demonstrates:
+1. raw data -> process -> model inputs
+2. attribution
+3. graph visualization export
+
+See `/Users/jiahaozhang/Repo/project/multimodal-lm-eap-ig/examples/README.md` for usage and outputs.
 
 ## Supported Methods
 

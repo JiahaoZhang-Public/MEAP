@@ -1,2 +1,2 @@
-# Full development environment.
+# Full development environment (includes multimodal + visualization extras).
 -e .[dev,multimodal,viz,docs]
