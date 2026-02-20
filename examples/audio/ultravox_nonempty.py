@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Audio attribution example for Ultravox.
+"""Audio attribution example targeting non-empty top200 circuits for Ultravox.
 
 Workflow:
-1. Raw audio + dialogue turns -> pipeline preprocess -> model inputs
+1. Raw audio + clean/corrupt turns -> pipeline preprocess -> model inputs
 2. Attribution (default: EAP)
-3. Graph visualization export (JSON + PNG)
+3. Root-aware topn export to avoid empty pruned circuit at small topn
 
 Run:
-  python examples/audio/ultravox.py --device cpu --dtype float32 --method EAP
+  python examples/audio/ultravox_nonempty.py --method EAP --dtype float32
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ from examples.common import (  # noqa: E402
     DEFAULT_AUDIO_URL,
     classify_error,
     dataclass_dict,
-    export_graph_artifacts,
+    export_graph_artifacts_nonempty_topn,
     load_audio_from_path_or_url,
     metric_logit_diff,
     resolve_target_pair,
@@ -68,6 +68,21 @@ def _resolve_pad_token_id(infer_pipe: Any) -> int:
     if pad_token_id is None:
         pad_token_id = 0
     return int(pad_token_id)
+
+
+def normalize_ultravox_user_prompt(prompt: str, *, audio_placeholder: str) -> str:
+    placeholder = str(audio_placeholder).strip() or ULTRAVOX_AUDIO_PLACEHOLDER
+    text = str(prompt).strip()
+    for token in ("<|audio_bos|>", "<|audio_eos|>", "<|AUDIO|>", ULTRAVOX_AUDIO_PLACEHOLDER):
+        if token == placeholder:
+            continue
+        text = text.replace(token, " ")
+
+    segments = [seg.strip() for seg in text.split(placeholder)]
+    merged = " ".join(seg for seg in segments if seg)
+    if merged:
+        return f"{placeholder}\n{merged}"
+    return placeholder
 
 
 @dataclass
@@ -119,7 +134,6 @@ class UltravoxPairPreparer(PairBatchPreparer):
         clean_inputs["attention_mask"] = _pad_to_length(clean_inputs["attention_mask"], target_len, 0)
         corrupt_inputs["attention_mask"] = _pad_to_length(corrupt_inputs["attention_mask"], target_len, 0)
 
-        # PreparedBatch requires aligned clean/corrupt attention semantics.
         shared_mask = torch.minimum(clean_inputs["attention_mask"], corrupt_inputs["attention_mask"])
         clean_inputs["attention_mask"] = shared_mask
         corrupt_inputs["attention_mask"] = shared_mask.clone()
@@ -136,7 +150,9 @@ class UltravoxPairPreparer(PairBatchPreparer):
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Ultravox audio attribution example with graph visualization.")
+    parser = argparse.ArgumentParser(
+        description="Ultravox non-empty top200 attribution example with root-aware pruning."
+    )
     parser.add_argument("--model-id", default="fixie-ai/ultravox-v0_5-llama-3_2-1b")
     parser.add_argument(
         "--method",
@@ -149,6 +165,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hf-token", default=None)
     parser.add_argument("--audio-path", default="")
     parser.add_argument("--audio-url", default=DEFAULT_AUDIO_URL)
+    parser.add_argument(
+        "--root-policy",
+        default="input_layer0",
+        choices=["input_layer0"],
+        help="Root selection policy for non-empty topn pruning.",
+    )
     parser.add_argument("--run-name", default="")
     parser.add_argument("--quiet", action="store_true")
     return parser.parse_args()
@@ -168,21 +190,6 @@ def _pipeline_device_arg(device: torch.device) -> int:
     if device.type == "cuda":
         return 0 if device.index is None else int(device.index)
     return -1
-
-
-def normalize_ultravox_user_prompt(prompt: str, *, audio_placeholder: str) -> str:
-    placeholder = str(audio_placeholder).strip() or ULTRAVOX_AUDIO_PLACEHOLDER
-    text = str(prompt).strip()
-    for token in ("<|audio_bos|>", "<|audio_eos|>", "<|AUDIO|>", ULTRAVOX_AUDIO_PLACEHOLDER):
-        if token == placeholder:
-            continue
-        text = text.replace(token, " ")
-
-    segments = [seg.strip() for seg in text.split(placeholder)]
-    merged = " ".join(seg for seg in segments if seg)
-    if merged:
-        return f"{placeholder}\n{merged}"
-    return placeholder
 
 
 def main() -> None:
@@ -213,7 +220,6 @@ def main() -> None:
             ULTRAVOX_AUDIO_PLACEHOLDER,
         )
 
-        # Step 1: raw audio and prompt turns
         audio, sr = load_audio_from_path_or_url(
             audio_path=args.audio_path,
             audio_url=args.audio_url,
@@ -241,7 +247,6 @@ def main() -> None:
         ]
         labels = resolve_target_pair(getattr(infer_pipe, "tokenizer", None), model)
 
-        # Step 1 -> model inputs
         prepared_batch = pair_preparer.prepare_batch(
             clean_samples={"audio": audio, "sampling_rate": sr, "turns": turns_clean},
             corrupt_samples={"audio": audio, "sampling_rate": sr, "turns": turns_corrupt},
@@ -261,7 +266,6 @@ def main() -> None:
             },
         )
 
-        # Step 2: attribution
         run = attribute_from_dataloader(
             model=model,
             backend=backend,
@@ -270,9 +274,12 @@ def main() -> None:
             method=args.method,
             quiet=args.quiet,
         )
-
-        # Step 3: visualization
-        artifacts, graph_stats = export_graph_artifacts(run.graph, output_dir, topn=args.topn)
+        artifacts, graph_stats, selection = export_graph_artifacts_nonempty_topn(
+            run.graph,
+            output_dir,
+            topn=args.topn,
+            root_policy=args.root_policy,
+        )
 
         result: Dict[str, Any] = {
             "modality": "audio",
@@ -280,6 +287,7 @@ def main() -> None:
             "method": args.method,
             "status": "pass",
             "seconds": time.time() - start,
+            "selection": selection,
             "graph_stats": dataclass_dict(graph_stats),
             "artifacts": {
                 **dataclass_dict(artifacts),
