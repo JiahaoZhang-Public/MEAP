@@ -3,12 +3,16 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import subprocess
 import sys
 import time
 from typing import Any, Dict, List, Optional
+
+REPORT_TYPE = "stage_matrix"
+SCHEMA_VERSION = "1.0.0"
 
 
 def _has_cuda() -> bool:
@@ -395,6 +399,9 @@ def main() -> None:
     models_passed = all(row.status in {"pass", "skip"} for row in model_rows)
 
     report = {
+        "report_type": REPORT_TYPE,
+        "schema_version": SCHEMA_VERSION,
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "config": {
             "text_models": _parse_list(args.text_models),
             "multimodal_models": _parse_list(args.multimodal_models),

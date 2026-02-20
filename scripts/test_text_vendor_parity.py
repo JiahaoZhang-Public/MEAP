@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import random
@@ -43,6 +44,8 @@ DEFAULT_METHODS = [
     "EAP-IG-activations",
     "exact",
 ]
+REPORT_TYPE = "text_vendor_parity"
+SCHEMA_VERSION = "1.0.0"
 
 
 @dataclass
@@ -535,6 +538,9 @@ def main() -> None:
             torch.cuda.empty_cache()
 
     payload = {
+        "report_type": REPORT_TYPE,
+        "schema_version": SCHEMA_VERSION,
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "config": {
             "models": model_ids,
             "methods": methods,

@@ -87,6 +87,9 @@ def test_stage_matrix_main_writes_unified_report(monkeypatch, tmp_path):
 
     stage_matrix.main()
     payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["report_type"] == "stage_matrix"
+    assert payload["schema_version"] == "1.0.0"
+    assert "generated_at_utc" in payload
     assert payload["all_passed"] is True
     assert len(payload["model_level"]) == 2
     assert len(payload["method_level"]) == 2

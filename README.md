@@ -165,8 +165,11 @@ python scripts/api_minimal_examples.py \
 Active docs:
 - Package guide: `multimodal_lm_eap_ig/README.md`
 - API stability: `docs/docs/API_STABILITY.md`
+- Compatibility matrix: `docs/docs/COMPATIBILITY_MATRIX.md`
 - Supported models: `docs/docs/SUPPORTED_MODELS.md`
+- Report schemas: `docs/docs/REPORT_SCHEMAS.md`
 - New model onboarding (5 min): `docs/docs/NEW_MODEL_ONBOARDING.md`
+- Scripts guide: `scripts/README.md`
 
 Archived historical docs (cache):
 - Staged implementation history: `docs/cache/STAGED_IMPLEMENTATION.md`

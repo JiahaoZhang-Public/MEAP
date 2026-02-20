@@ -127,4 +127,8 @@ def test_main_writes_report(monkeypatch, tmp_path):
     smoke_matrix.main()
 
     loaded = json.loads(Path(out).read_text(encoding="utf-8"))
-    assert loaded == fake_report
+    assert loaded["report_type"] == "smoke_hf_matrix"
+    assert loaded["schema_version"] == "1.0.0"
+    assert "generated_at_utc" in loaded
+    assert loaded["all_passed"] is True
+    assert loaded["results"] == fake_report["results"]

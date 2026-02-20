@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import sys
@@ -47,6 +48,8 @@ DEFAULT_MULTIMODAL_MODELS = [
     "HuggingFaceTB/SmolVLM-Instruct",
     "Qwen/Qwen2-Audio-7B",
 ]
+REPORT_TYPE = "smoke_hf_matrix"
+SCHEMA_VERSION = "1.0.0"
 
 
 @dataclass
@@ -633,7 +636,7 @@ def main() -> None:
     args = parse_args()
     text_models = parse_model_list(args.text_models)
     multimodal_models = parse_model_list(args.multimodal_models)
-    report = run_matrix(
+    core_report = run_matrix(
         text_models=text_models,
         multimodal_models=multimodal_models,
         device=args.device,
@@ -642,6 +645,19 @@ def main() -> None:
         audio_fallback_model=args.audio_fallback_model,
         quiet=args.quiet,
     )
+    report = {
+        "report_type": REPORT_TYPE,
+        "schema_version": SCHEMA_VERSION,
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "config": {
+            "text_models": text_models,
+            "multimodal_models": multimodal_models,
+            "device": args.device,
+            "dtype": args.dtype,
+            "audio_fallback_model": args.audio_fallback_model,
+        },
+        **core_report,
+    }
 
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
