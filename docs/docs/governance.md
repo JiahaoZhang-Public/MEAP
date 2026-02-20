@@ -61,3 +61,5 @@ twine check dist/*
   - API changes,
   - model support changes,
   - known limitations.
+- Update `CHANGELOG.md` for every release.
+- Use scripted release flow in `docs/docs/RELEASE_PROCESS.md`.

@@ -37,6 +37,10 @@ python scripts/smoke_hf_matrix.py --text-models gpt2 --multimodal-models Qwen/Qw
 - Purpose: unified staged matrix wrapper (quality gates + text parity + multimodal smoke).
 - Output schema: `report_type=stage_matrix`, `schema_version=1.0.0`.
 
+6. `scripts/release/release.py`
+- Purpose: release engineering utility (gate/build/check/notes/tag).
+- See `scripts/release/README.md` for command usage.
+
 ## Archived Scripts
 
 Archived scripts are kept for historical/debug reference and are not part of the current recommended workflow:

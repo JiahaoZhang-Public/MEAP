@@ -7,5 +7,6 @@ nav:
   - Compatibility Matrix: COMPATIBILITY_MATRIX.md
   - Supported Models: SUPPORTED_MODELS.md
   - Report Schemas: REPORT_SCHEMAS.md
+  - Release Process: RELEASE_PROCESS.md
   - New Model Onboarding: NEW_MODEL_ONBOARDING.md
   - Governance: governance.md

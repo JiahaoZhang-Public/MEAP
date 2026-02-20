@@ -21,10 +21,13 @@ This documentation is organized by **what a new user should read first**.
 5. Report schema contract:
 - `docs/docs/REPORT_SCHEMAS.md`
 
-6. Add a new model in 5 minutes:
+6. Release process:
+- `docs/docs/RELEASE_PROCESS.md`
+
+7. Add a new model in 5 minutes:
 - `docs/docs/NEW_MODEL_ONBOARDING.md`
 
-7. Scripts guide:
+8. Scripts guide:
 - `scripts/README.md`
 
 ## Documentation Status
@@ -34,6 +37,7 @@ Active documents:
 - `COMPATIBILITY_MATRIX.md`
 - `SUPPORTED_MODELS.md`
 - `REPORT_SCHEMAS.md`
+- `RELEASE_PROCESS.md`
 - `NEW_MODEL_ONBOARDING.md`
 - `governance.md`
 

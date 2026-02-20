@@ -2,6 +2,12 @@
 
 `mm-eap` (Multimodal Edge Attribution Patching) is a Python package for running the EAP-family attribution methods on Hugging Face language-model backbones, including multimodal models via language-trunk attribution.
 
+## Upstream Reference
+
+This repository's initial code scaffold was directly copied from the original EAP-IG repository and then refactored/extended for multimodal and Hugging Face backend support:
+
+- [hannamw/EAP-IG](https://github.com/hannamw/EAP-IG)
+
 Import path:
 
 ```python
@@ -160,6 +166,27 @@ python scripts/api_minimal_examples.py \
 - Some architectures still require adapter extension for full method parity.
 - `exact` can be expensive; parity scripts support skip-by-edge-threshold policy.
 
+## Release Engineering (v1.0.0)
+
+Changelog:
+- `CHANGELOG.md`
+
+Scripted release flow:
+- `scripts/release/release.py`
+- `scripts/release/README.md`
+- `docs/docs/RELEASE_PROCESS.md`
+
+Typical RC flow:
+
+```bash
+python scripts/release/release.py set-version --version 1.0.0rc1
+python scripts/release/release.py gate --clean-dist
+python scripts/release/release.py notes --version v1.0.0-rc1
+python scripts/release/release.py tag --version v1.0.0-rc1 --push
+```
+
+After RC validation, repeat notes/tag for `v1.0.0`.
+
 ## Docs Map
 
 Active docs:
@@ -168,6 +195,7 @@ Active docs:
 - Compatibility matrix: `docs/docs/COMPATIBILITY_MATRIX.md`
 - Supported models: `docs/docs/SUPPORTED_MODELS.md`
 - Report schemas: `docs/docs/REPORT_SCHEMAS.md`
+- Release process: `docs/docs/RELEASE_PROCESS.md`
 - New model onboarding (5 min): `docs/docs/NEW_MODEL_ONBOARDING.md`
 - Scripts guide: `scripts/README.md`
 

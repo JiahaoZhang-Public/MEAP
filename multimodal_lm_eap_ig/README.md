@@ -2,6 +2,13 @@
 
 This package implements attribution methods (EAP / EAP-IG variants / exact / smoke) on top of model backends, with a focus on Hugging Face models and language-trunk attribution for multimodal systems.
 
+## Upstream Scaffold
+
+The initial scaffold of this codebase was directly copied from:
+- [hannamw/EAP-IG](https://github.com/hannamw/EAP-IG)
+
+This package then added backend abstraction, HF-first runtime, multimodal input paths, matrix tooling, and release engineering workflow.
+
 ## Installation
 
 Runtime install:

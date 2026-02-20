@@ -2,6 +2,13 @@
 
 This page fixes the compatibility contract for `mm-eap` v1 PR4.
 
+## Installation Modes
+
+- Development (recommended for contributors):
+  - `pip install -e ".[dev,multimodal,viz,docs]"`
+- Release install (post `v1.0.0`):
+  - `pip install mm-eap`
+
 ## Runtime Compatibility
 
 From package metadata (`pyproject.toml`):
@@ -61,3 +68,9 @@ Smoke acceptance:
 - `status == "pass"`
 - graph stats present (`n_forward`, `n_backward`, `n_edges`)
 - failures provide structured diagnostics (`error_type`, `error_message`, `resolution_error_hint`)
+
+## Known Limits (Release Notes Mirror)
+
+- Multimodal attribution targets language-model trunk only.
+- Some architecture-specific intervention paths remain staged and adapter-dependent.
+- `exact` is compute-heavy and commonly run with edge-threshold skip policy.
