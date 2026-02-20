@@ -26,11 +26,20 @@ VENDOR_SRC = REPO_ROOT / "vendor" / "eap-ig" / "src"
 if str(VENDOR_SRC) not in sys.path:
     sys.path.insert(0, str(VENDOR_SRC))
 
-import eap.attribute as vendor_attribute_module  # noqa: E402
-from eap.attribute import attribute as vendor_attribute  # noqa: E402
-import eap.evaluate as vendor_evaluate_module  # noqa: E402
-from eap.graph import Graph as VendorGraph  # noqa: E402
-import eap.utils as vendor_utils_module  # noqa: E402
+_VENDOR_IMPORT_ERROR: Exception | None = None
+vendor_attribute_module: Any = None
+vendor_evaluate_module: Any = None
+vendor_utils_module: Any = None
+vendor_attribute: Any = None
+VendorGraph: Any = None
+try:
+    import eap.attribute as vendor_attribute_module  # noqa: E402
+    from eap.attribute import attribute as vendor_attribute  # noqa: E402
+    import eap.evaluate as vendor_evaluate_module  # noqa: E402
+    from eap.graph import Graph as VendorGraph  # noqa: E402
+    import eap.utils as vendor_utils_module  # noqa: E402
+except Exception as exc:  # noqa: BLE001
+    _VENDOR_IMPORT_ERROR = exc
 
 from multimodal_lm_eap_ig.attribute import attribute as ours_attribute  # noqa: E402
 from multimodal_lm_eap_ig.backend import HFLLMBackend, TLensBackend  # noqa: E402
@@ -69,6 +78,16 @@ class MethodParityRow:
     vendor_vs_ours_tlens: DiffStats | None
     vendor_vs_ours_hf: DiffStats | None
     ours_tlens_vs_ours_hf: DiffStats | None
+
+
+def ensure_vendor_available() -> None:
+    if _VENDOR_IMPORT_ERROR is None:
+        return
+    raise ModuleNotFoundError(
+        "vendor EAP package is unavailable. Initialize the submodule first "
+        "(git submodule update --init --recursive) or ensure vendor/eap-ig/src is present. "
+        f"Original import error: {_VENDOR_IMPORT_ERROR}"
+    ) from _VENDOR_IMPORT_ERROR
 
 
 def parse_args() -> argparse.Namespace:
@@ -138,6 +157,7 @@ def set_seed(seed: int) -> None:
 
 
 def patch_vendor_cuda_literals() -> None:
+    ensure_vendor_available()
     if torch.cuda.is_available():
         return
 
@@ -346,6 +366,7 @@ def run_method(
     model_id_hf: str,
     adapter_name: str,
 ) -> MethodParityRow:
+    ensure_vendor_available()
     start = time.time()
 
     vendor_graph = VendorGraph.from_model(tlens_model)
