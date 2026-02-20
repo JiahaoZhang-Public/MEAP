@@ -1,5 +1,8 @@
 # REFACTOR DESIGN: From Text-Only EAP-IG to Multimodal EAP-IG
 
+Status: historical design note. Keep for rationale/context; use `API_STABILITY.md` and
+`NEW_MODEL_ONBOARDING.md` for current user/developer workflows.
+
 ## Purpose
 This document describes a high-level refactor plan for evolving the current text-only EAP-IG implementation into a multimodal-capable version while preserving the existing graph semantics and attribution core.
 

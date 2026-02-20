@@ -1,5 +1,7 @@
 # Staged Implementation and Acceptance
 
+Status: historical delivery log. This document tracks phase-by-phase implementation history.
+
 This document records the staged rollout requested for backend migration and multimodal input unification.
 
 ## PR1: Phase 1 + 2 (Unified Input Layer + Processor Adapter)

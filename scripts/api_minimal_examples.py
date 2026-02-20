@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+import json
 from pathlib import Path
 import sys
 from typing import Any, Dict, Mapping, Optional
@@ -46,6 +47,7 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--hf-token", default=None)
     parser.add_argument("--audio-path", default="")
+    parser.add_argument("--output", default="", help="Optional path to write JSON summary.")
     return parser.parse_args()
 
 
@@ -109,27 +111,29 @@ def _text_prepared_batch(tokenizer, clean_text: str, corrupt_text: str, max_leng
     return batch
 
 
-def _print_summary(example: str, method: str, result) -> None:
-    print(
-        {
-            "example": example,
-            "method": method,
-            "graph": {
-                "n_forward": result.graph.n_forward,
-                "n_backward": result.graph.n_backward,
-                "n_edges": len(result.graph.edges),
-            },
-            "scores": {
-                "shape": [int(result.scores.shape[0]), int(result.scores.shape[1])],
-                "min": float(result.scores.min().item()),
-                "max": float(result.scores.max().item()),
-                "mean": float(result.scores.mean().item()),
-            },
-        }
-    )
+def _summarize(example: str, method: str, result) -> Dict[str, Any]:
+    return {
+        "example": example,
+        "method": method,
+        "graph": {
+            "n_forward": result.graph.n_forward,
+            "n_backward": result.graph.n_backward,
+            "n_edges": len(result.graph.edges),
+        },
+        "scores": {
+            "shape": [int(result.scores.shape[0]), int(result.scores.shape[1])],
+            "min": float(result.scores.min().item()),
+            "max": float(result.scores.max().item()),
+            "mean": float(result.scores.mean().item()),
+        },
+    }
 
 
-def _run_text_gpt2(args: argparse.Namespace) -> None:
+def _print_summary(summary: Dict[str, Any]) -> None:
+    print(json.dumps(summary, indent=2, ensure_ascii=False))
+
+
+def _run_text_gpt2(args: argparse.Namespace) -> Dict[str, Any]:
     model_id = "openai-community/gpt2"
     tokenizer = AutoTokenizer.from_pretrained(model_id, token=args.hf_token)
     if tokenizer.pad_token_id is None:
@@ -152,10 +156,10 @@ def _run_text_gpt2(args: argparse.Namespace) -> None:
         metric=_metric,
         method=args.method,
     )
-    _print_summary("text-gpt2", args.method, result)
+    return _summarize("text-gpt2", args.method, result)
 
 
-def _run_text_qwen2(args: argparse.Namespace) -> None:
+def _run_text_qwen2(args: argparse.Namespace) -> Dict[str, Any]:
     model_id = "Qwen/Qwen2-0.5B"
     tokenizer = AutoTokenizer.from_pretrained(model_id, token=args.hf_token)
     if tokenizer.pad_token_id is None:
@@ -185,7 +189,7 @@ def _run_text_qwen2(args: argparse.Namespace) -> None:
         metric=_metric,
         method=args.method,
     )
-    _print_summary("text-qwen2", args.method, result)
+    return _summarize("text-qwen2", args.method, result)
 
 
 def _qwen2_vl_prompt(processor, question: str) -> str:
@@ -205,7 +209,7 @@ def _qwen2_vl_prompt(processor, question: str) -> str:
     return f"<image>\n{question}"
 
 
-def _run_image_qwen2_vl(args: argparse.Namespace) -> None:
+def _run_image_qwen2_vl(args: argparse.Namespace) -> Dict[str, Any]:
     model_id = "Qwen/Qwen2-VL-2B"
     processor = AutoProcessor.from_pretrained(model_id, token=args.hf_token, trust_remote_code=True)
     model = AutoModelForImageTextToText.from_pretrained(
@@ -239,7 +243,7 @@ def _run_image_qwen2_vl(args: argparse.Namespace) -> None:
         metric=_metric,
         method=args.method,
     )
-    _print_summary("image-qwen2vl", args.method, result)
+    return _summarize("image-qwen2vl", args.method, result)
 
 
 @dataclass
@@ -284,7 +288,7 @@ class UltravoxPairPreparer(PairBatchPreparer):
         return batch
 
 
-def _run_audio_ultravox(args: argparse.Namespace) -> None:
+def _run_audio_ultravox(args: argparse.Namespace) -> Dict[str, Any]:
     if not args.audio_path:
         raise ValueError("--audio-path is required for audio-ultravox example.")
 
@@ -328,24 +332,29 @@ def _run_audio_ultravox(args: argparse.Namespace) -> None:
         metric=_metric,
         method=args.method,
     )
-    _print_summary("audio-ultravox", args.method, result)
+    return _summarize("audio-ultravox", args.method, result)
 
 
-def main() -> None:
+def main() -> Dict[str, Any]:
     args = _parse_args()
     if args.example == "text-gpt2":
-        _run_text_gpt2(args)
-        return
-    if args.example == "text-qwen2":
-        _run_text_qwen2(args)
-        return
-    if args.example == "image-qwen2vl":
-        _run_image_qwen2_vl(args)
-        return
-    if args.example == "audio-ultravox":
-        _run_audio_ultravox(args)
-        return
-    raise ValueError(f"Unsupported example: {args.example}")
+        summary = _run_text_gpt2(args)
+    elif args.example == "text-qwen2":
+        summary = _run_text_qwen2(args)
+    elif args.example == "image-qwen2vl":
+        summary = _run_image_qwen2_vl(args)
+    elif args.example == "audio-ultravox":
+        summary = _run_audio_ultravox(args)
+    else:
+        raise ValueError(f"Unsupported example: {args.example}")
+
+    _print_summary(summary)
+    if args.output:
+        out = Path(args.output)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        print(f"Saved summary to {out}")
+    return summary
 
 
 if __name__ == "__main__":

@@ -1,61 +1,181 @@
-# Multimodal LM EAP(IG)
+# mm-eap
 
-<a target="_blank" href="https://cookiecutter-data-science.drivendata.org/">
-    <img src="https://img.shields.io/badge/CCDS-Project%20template-328F97?logo=cookiecutter" />
-</a>
+`mm-eap` (Multimodal Edge Attribution Patching) is a Python package for running the EAP-family attribution methods on Hugging Face language-model backbones, including multimodal models via language-trunk attribution.
 
-EAP(IG) for Multimodal LM
+Import path:
 
-## Project Organization
-
-```
-├── LICENSE            <- Open-source license if one is chosen
-├── Makefile           <- Makefile with convenience commands like `make data` or `make train`
-├── README.md          <- The top-level README for developers using this project.
-├── data
-│   ├── external       <- Data from third party sources.
-│   ├── interim        <- Intermediate data that has been transformed.
-│   ├── processed      <- The final, canonical data sets for modeling.
-│   └── raw            <- The original, immutable data dump.
-│
-├── docs               <- A default mkdocs project; see www.mkdocs.org for details
-│
-├── models             <- Trained and serialized models, model predictions, or model summaries
-│
-├── notebooks          <- Jupyter notebooks. Naming convention is a number (for ordering),
-│                         the creator's initials, and a short `-` delimited description, e.g.
-│                         `1.0-jqp-initial-data-exploration`.
-│
-├── pyproject.toml     <- Project configuration file with package metadata for 
-│                         multimodal_lm_eap_ig and configuration for tools like black
-│
-├── references         <- Data dictionaries, manuals, and all other explanatory materials.
-│
-├── reports            <- Generated analysis as HTML, PDF, LaTeX, etc.
-│   └── figures        <- Generated graphics and figures to be used in reporting
-│
-├── requirements.txt   <- The requirements file for reproducing the analysis environment, e.g.
-│                         generated with `pip freeze > requirements.txt`
-│
-├── setup.cfg          <- Configuration file for flake8
-│
-└── multimodal_lm_eap_ig   <- Source code for use in this project.
-    │
-    ├── __init__.py             <- Makes multimodal_lm_eap_ig a Python module
-    │
-    ├── config.py               <- Store useful variables and configuration
-    │
-    ├── dataset.py              <- Scripts to download or generate data
-    │
-    ├── features.py             <- Code to create features for modeling
-    │
-    ├── modeling                
-    │   ├── __init__.py 
-    │   ├── predict.py          <- Code to run model inference with trained models          
-    │   └── train.py            <- Code to train models
-    │
-    └── plots.py                <- Code to create visualizations
+```python
+import multimodal_lm_eap_ig
 ```
 
---------
+PyPI package name:
 
+```bash
+pip install mm-eap
+```
+
+## Quick Start (10 Minutes)
+
+### 1) Install
+
+```bash
+conda create -n mm-eap-ig python=3.10 -y
+conda activate mm-eap-ig
+pip install -e ".[dev,multimodal,viz,docs]"
+```
+
+### 2) Run one smoke example (text)
+
+```bash
+python scripts/api_minimal_examples.py \
+  --example text-gpt2 \
+  --method smoke \
+  --device cpu \
+  --dtype float32
+```
+
+### 3) Optional: save a JSON report
+
+```bash
+python scripts/api_minimal_examples.py \
+  --example text-gpt2 \
+  --method smoke \
+  --device cpu \
+  --dtype float32 \
+  --output reports/example_text_gpt2.json
+```
+
+## Stable API
+
+Stable high-level API lives in `multimodal_lm_eap_ig.api`.
+
+- `attribute_from_dataloader`
+- `evaluate_graph_from_dataloader`
+- `evaluate_baseline_from_dataloader`
+- `AttributionRunResult`
+
+API stability policy and deprecations:
+- `docs/docs/API_STABILITY.md`
+
+## Two Supported Input Entrypoints
+
+### Entrypoint A: `PreparedBatch` (fully user-prepared inputs)
+
+```python
+from multimodal_lm_eap_ig import HFLLMBackend, attribute_from_dataloader
+
+backend = HFLLMBackend(model, tokenizer=tokenizer)
+result = attribute_from_dataloader(
+    model=model,
+    backend=backend,
+    dataloader=[prepared_batch],  # PreparedBatch
+    metric=metric_fn,
+    method="EAP",
+)
+```
+
+### Entrypoint B: raw clean/corrupt + `processor` or `pair_batch_preparer`
+
+```python
+from multimodal_lm_eap_ig import HFLLMBackend, attribute_from_dataloader
+
+backend = HFLLMBackend(model, tokenizer=getattr(processor, "tokenizer", None))
+result = attribute_from_dataloader(
+    model=model,
+    backend=backend,
+    dataloader=[{"clean": clean_samples, "corrupt": corrupt_samples, "labels": labels}],
+    processor=processor,  # or pair_batch_preparer=...
+    metric=metric_fn,
+    method="smoke",
+)
+```
+
+Notes:
+- `processor` and `pair_batch_preparer` are mutually exclusive.
+- High-level API does not do implicit truncation.
+
+## Minimal Executable Examples
+
+All examples share unified arguments:
+- `--example`
+- `--method`
+- `--device`
+- `--dtype`
+- `--hf-token` (optional)
+- `--output` (optional)
+
+### Text: GPT-2 (`PreparedBatch` path)
+
+```bash
+python scripts/api_minimal_examples.py \
+  --example text-gpt2 \
+  --method smoke \
+  --device cpu \
+  --dtype float32
+```
+
+### Text: Qwen2-0.5B (`PreparedBatch` path)
+
+```bash
+python scripts/api_minimal_examples.py \
+  --example text-qwen2 \
+  --method smoke \
+  --device cpu \
+  --dtype float32
+```
+
+### Image-text: Qwen2-VL-2B (`processor` path)
+
+```bash
+python scripts/api_minimal_examples.py \
+  --example image-qwen2vl \
+  --method smoke \
+  --device cpu \
+  --dtype float32
+```
+
+### Audio: Ultravox (`pair_batch_preparer` path)
+
+```bash
+python scripts/api_minimal_examples.py \
+  --example audio-ultravox \
+  --audio-path /path/to/audio.wav \
+  --method smoke \
+  --device cpu \
+  --dtype float32
+```
+
+## Supported Methods
+
+- `smoke`
+- `EAP`
+- `EAP-IG-inputs`
+- `clean-corrupted`
+- `EAP-IG-activations`
+- `exact`
+
+## Current Limits
+
+- Multimodal attribution currently targets language-model trunk only.
+- Some architectures still require adapter extension for full method parity.
+- `exact` can be expensive; parity scripts support skip-by-edge-threshold policy.
+
+## Docs Map
+
+Active docs:
+- Package guide: `multimodal_lm_eap_ig/README.md`
+- API stability: `docs/docs/API_STABILITY.md`
+- Supported models: `docs/docs/SUPPORTED_MODELS.md`
+- New model onboarding (5 min): `docs/docs/NEW_MODEL_ONBOARDING.md`
+
+Historical/roadmap docs:
+- Staged implementation history: `docs/docs/STAGED_IMPLEMENTATION.md`
+- Early refactor design context: `docs/docs/REFACTOR_DESIGN.md`
+
+## Development
+
+```bash
+ruff check multimodal_lm_eap_ig tests scripts
+pytest -q
+mypy
+```
