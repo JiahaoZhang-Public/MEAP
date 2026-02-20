@@ -2,6 +2,20 @@
 
 This package implements attribution methods (EAP / EAP-IG variants / exact / smoke) on top of model backends, with a focus on Hugging Face models and language-trunk attribution for multimodal systems.
 
+## Installation
+
+Runtime install:
+
+```bash
+pip install mm-eap
+```
+
+Development install:
+
+```bash
+pip install -e ".[dev,multimodal,viz,docs]"
+```
+
 ## Design Goal
 
 - User controls data preparation.

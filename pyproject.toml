@@ -3,25 +3,70 @@ requires = ["flit_core >=3.2,<4"]
 build-backend = "flit_core.buildapi"
 
 [project]
-name = "multimodal_lm_eap_ig"
-version = "0.0.1"
-description = "EAP(IG) for Multimodal LM"
+name = "mm-eap"
+version = "1.0.0.dev1"
+description = "Multimodal Edge Attribution Patching (EAP-family) for language-model backbones"
 authors = [
-  { name = "Jiahao Zhang" },
+  { name = "Jiahao Zhang" }
+]
+maintainers = [
+  { name = "Jiahao Zhang" }
 ]
 license = { file = "LICENSE" }
-readme = "README.md"
+readme = "multimodal_lm_eap_ig/README.md"
+keywords = ["attribution", "mechanistic-interpretability", "multimodal", "transformers", "eap"]
 classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License"
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence"
 ]
-requires-python = "~=3.10.0"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "einops>=0.7",
+    "numpy>=1.24",
+    "torch>=2.1",
+    "transformer-lens>=2.11",
+    "transformers>=4.49",
+]
+
+[project.optional-dependencies]
+multimodal = [
+    "librosa>=0.10",
+    "peft>=0.11",
+    "Pillow>=10.0",
+    "torchvision>=0.16",
+]
+viz = [
+    "matplotlib>=3.8",
+]
+docs = [
+    "mkdocs>=1.5",
+]
+dev = [
+    "build>=1.2",
+    "pytest>=8.0",
+    "ruff>=0.5",
+    "twine>=5.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/JiahaoZhang-Public/Multimodal-LM-EAP-IG"
+Repository = "https://github.com/JiahaoZhang-Public/Multimodal-LM-EAP-IG"
+Issues = "https://github.com/JiahaoZhang-Public/Multimodal-LM-EAP-IG/issues"
+Documentation = "https://github.com/JiahaoZhang-Public/Multimodal-LM-EAP-IG/tree/main/docs"
+
+[tool.flit.module]
+name = "multimodal_lm_eap_ig"
 
 
 [tool.ruff]
 line-length = 99
-src = ["multimodal_lm_eap_ig"]
-include = ["pyproject.toml", "multimodal_lm_eap_ig/**/*.py"]
+src = ["multimodal_lm_eap_ig", "scripts", "tests"]
+include = ["pyproject.toml", "multimodal_lm_eap_ig/**/*.py", "scripts/**/*.py", "tests/**/*.py"]
 
 [tool.ruff.lint]
 extend-select = ["I"]  # Add import sorting
@@ -29,4 +74,3 @@ extend-select = ["I"]  # Add import sorting
 [tool.ruff.lint.isort]
 known-first-party = ["multimodal_lm_eap_ig"]
 force-sort-within-sections = true
-

@@ -22,8 +22,12 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from multimodal_lm_eap_ig import HFLLMBackend, PreparedBatch, attribute_from_dataloader
-from multimodal_lm_eap_ig.batch import PairBatchPreparer, validate_prepared_batch
+from multimodal_lm_eap_ig import (  # noqa: E402
+    HFLLMBackend,
+    PreparedBatch,
+    attribute_from_dataloader,
+)
+from multimodal_lm_eap_ig.batch import PairBatchPreparer, validate_prepared_batch  # noqa: E402
 
 
 def _parse_args() -> argparse.Namespace:

@@ -7,8 +7,8 @@ from multimodal_lm_eap_ig.api import (
     evaluate_baseline_from_dataloader,
     evaluate_graph_from_dataloader,
 )
-from multimodal_lm_eap_ig.graph import Graph
 from multimodal_lm_eap_ig.backend import HFLLMBackend
+from multimodal_lm_eap_ig.graph import Graph
 from multimodal_lm_eap_ig.preparer import HFProcessorAdapter
 
 

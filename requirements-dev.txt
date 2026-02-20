@@ -1,0 +1,2 @@
+# Full development environment.
+-e .[dev,multimodal,viz,docs]
