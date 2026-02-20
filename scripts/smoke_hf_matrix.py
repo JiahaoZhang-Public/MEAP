@@ -7,14 +7,17 @@ import json
 from pathlib import Path
 import sys
 import time
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Mapping, Optional
 
+import numpy as np
 import torch
 from transformers import (
+    AutoModel,
     AutoModelForCausalLM,
     AutoModelForImageTextToText,
     AutoProcessor,
     AutoTokenizer,
+    pipeline,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -28,6 +31,7 @@ from multimodal_lm_eap_ig import (  # noqa: E402
     attribute_from_dataloader,
     inspect_model_architecture,
 )
+from multimodal_lm_eap_ig.batch import PairBatchPreparer, validate_prepared_batch  # noqa: E402
 from multimodal_lm_eap_ig.graph import Graph  # noqa: E402
 
 DEFAULT_TEXT_MODELS = [
@@ -41,6 +45,7 @@ DEFAULT_MULTIMODAL_MODELS = [
     "Qwen/Qwen2-VL-2B",
     "llava-hf/llava-1.5-7b-hf",
     "HuggingFaceTB/SmolVLM-Instruct",
+    "Qwen/Qwen2-Audio-7B",
 ]
 
 
@@ -59,6 +64,46 @@ class SmokeRow:
     graph_stats: Optional[Dict[str, int]]
 
 
+@dataclass
+class UltravoxPairPreparer(PairBatchPreparer):
+    infer_pipe: Any
+    device: torch.device
+
+    def _encode_one(self, sample: Mapping[str, Any]) -> Dict[str, torch.Tensor]:
+        features = self.infer_pipe.preprocess(
+            {
+                "audio": sample["audio"],
+                "turns": sample["turns"],
+                "sampling_rate": sample["sampling_rate"],
+            }
+        )
+        if not isinstance(features, Mapping):
+            raise TypeError("Ultravox pipeline preprocess must return a mapping of model tensors.")
+        out = {}
+        for key, value in features.items():
+            if torch.is_tensor(value):
+                out[key] = value.to(self.device)
+        if "attention_mask" not in out and "input_ids" in out:
+            out["attention_mask"] = torch.ones_like(out["input_ids"], dtype=torch.long, device=self.device)
+        return out
+
+    def prepare_batch(self, clean_samples, corrupt_samples, labels, *, meta: Optional[Dict[str, Any]] = None):
+        clean_inputs = self._encode_one(clean_samples)
+        corrupt_inputs = self._encode_one(corrupt_samples)
+        if "attention_mask" not in clean_inputs or "attention_mask" not in corrupt_inputs:
+            raise ValueError("Ultravox preparer requires attention_mask in both clean and corrupt inputs.")
+        input_lengths = clean_inputs["attention_mask"].sum(dim=-1)
+        prepared = PreparedBatch(
+            clean_inputs=clean_inputs,
+            corrupt_inputs=corrupt_inputs,
+            labels=labels,
+            input_lengths=input_lengths,
+            meta=meta,
+        )
+        validate_prepared_batch(prepared)
+        return prepared
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="HF backend smoke matrix for text and multimodal models.")
     parser.add_argument("--text-models", default=",".join(DEFAULT_TEXT_MODELS))
@@ -66,6 +111,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--dtype", default="float32", choices=["float16", "bfloat16", "float32"])
     parser.add_argument("--hf-token", default=None)
+    parser.add_argument(
+        "--audio-fallback-model",
+        default="fixie-ai/ultravox-v0_5-llama-3_2-1b",
+        help="Fallback model for audio smoke when primary audio model fails to load.",
+    )
     parser.add_argument("--output", default="reports/smoke_hf_matrix.json")
     parser.add_argument("--quiet", action="store_true")
     return parser.parse_args()
@@ -85,6 +135,8 @@ def parse_model_list(value: str) -> List[str]:
 
 def classify_error(exc: Exception) -> str:
     text = str(exc).lower()
+    if "no module named" in text:
+        return "dependency_missing"
     if "out of memory" in text or "cuda oom" in text:
         return "oom"
     if "401" in text or "403" in text or "unauthorized" in text or "forbidden" in text:
@@ -159,6 +211,15 @@ def _build_demo_image() -> torch.Tensor:
     return image.numpy()
 
 
+def _build_demo_audio() -> np.ndarray:
+    return np.zeros((16000,), dtype=np.float32)
+
+
+def _is_audio_model_id(model_id: str) -> bool:
+    lower = model_id.lower()
+    return "audio" in lower or "ultravox" in lower
+
+
 def _load_multimodal_model(
     model_id: str,
     *,
@@ -175,6 +236,27 @@ def _load_multimodal_model(
         from transformers import AutoModelForVision2Seq
 
         return AutoModelForVision2Seq.from_pretrained(model_id, **kwargs)
+
+
+def _load_audio_model(
+    model_id: str,
+    *,
+    dtype: torch.dtype,
+    token: Optional[str],
+):
+    kwargs: Dict[str, Any] = {"dtype": dtype, "trust_remote_code": True}
+    if token:
+        kwargs["token"] = token
+    try:
+        return AutoModel.from_pretrained(model_id, **kwargs)
+    except Exception as auto_exc:
+        try:
+            return AutoModelForCausalLM.from_pretrained(model_id, **kwargs)
+        except Exception as causal_exc:
+            raise RuntimeError(
+                "Failed to load audio model with both AutoModel and AutoModelForCausalLM. "
+                f"AutoModel error: {auto_exc}; AutoModelForCausalLM error: {causal_exc}"
+            ) from causal_exc
 
 
 def run_text_smoke_model(
@@ -270,7 +352,17 @@ def run_multimodal_smoke_model(
     device: str,
     dtype: torch.dtype,
     token: Optional[str],
+    audio_fallback_model: Optional[str],
 ) -> SmokeRow:
+    if _is_audio_model_id(model_id):
+        return run_audio_smoke_model(
+            model_id=model_id,
+            device=device,
+            dtype=dtype,
+            token=token,
+            audio_fallback_model=audio_fallback_model,
+        )
+
     start = time.time()
     model = None
     kwargs: Dict[str, Any] = {"trust_remote_code": True}
@@ -359,6 +451,148 @@ def run_multimodal_smoke_model(
         )
 
 
+def run_audio_smoke_model(
+    model_id: str,
+    *,
+    device: str,
+    dtype: torch.dtype,
+    token: Optional[str],
+    audio_fallback_model: Optional[str],
+) -> SmokeRow:
+    start = time.time()
+    model = None
+    requested_model_id = model_id
+    kwargs: Dict[str, Any] = {"trust_remote_code": True}
+    if token:
+        kwargs["token"] = token
+
+    def _attempt_audio(current_model_id: str) -> SmokeRow:
+        nonlocal model
+        audio = _build_demo_audio()
+        if "ultravox" in current_model_id.lower():
+            model = _load_audio_model(current_model_id, dtype=dtype, token=token).to(device=device)
+            model.eval()
+            backend = HFLLMBackend(model)
+            infer_pipe = pipeline(model=current_model_id, trust_remote_code=True, token=token)
+            pair_preparer = UltravoxPairPreparer(infer_pipe=infer_pipe, device=backend.config.device)
+            turns_clean = [
+                {"role": "system", "content": "You are concise."},
+                {"role": "user", "content": "Summarize the spoken content in one sentence."},
+            ]
+            turns_corrupt = [
+                {"role": "system", "content": "You are concise."},
+                {"role": "user", "content": "Transcribe the spoken content."},
+            ]
+            dataloader = [
+                {
+                    "clean": {"audio": audio, "sampling_rate": 16000, "turns": turns_clean},
+                    "corrupt": {"audio": audio, "sampling_rate": 16000, "turns": turns_corrupt},
+                    "labels": None,
+                }
+            ]
+            scores = attribute_from_dataloader(
+                model=model,
+                backend=backend,
+                dataloader=dataloader,
+                metric=smoke_metric,
+                pair_batch_preparer=pair_preparer,
+                method="smoke",
+                quiet=True,
+            ).scores
+        else:
+            processor = AutoProcessor.from_pretrained(current_model_id, **kwargs)
+            model = _load_audio_model(current_model_id, dtype=dtype, token=token).to(device=device)
+            model.eval()
+            backend = HFLLMBackend(model, tokenizer=getattr(processor, "tokenizer", None))
+            clean_prompt = "<|audio_bos|><|AUDIO|><|audio_eos|>Summarize the audio:"
+            corrupt_prompt = "<|audio_bos|><|AUDIO|><|audio_eos|>Transcribe the audio:"
+            dataloader = [
+                {
+                    "clean": {"text": clean_prompt, "audio": audio, "sampling_rate": 16000},
+                    "corrupt": {"text": corrupt_prompt, "audio": audio, "sampling_rate": 16000},
+                    "labels": None,
+                }
+            ]
+            scores = attribute_from_dataloader(
+                model=model,
+                backend=backend,
+                dataloader=dataloader,
+                metric=smoke_metric,
+                processor=processor,
+                method="smoke",
+                quiet=True,
+            ).scores
+
+        graph = Graph.from_model(backend.config)
+        return SmokeRow(
+            model_id=requested_model_id,
+            modality="multimodal",
+            adapter_name=backend.adapter_name,
+            backbone_path=backend.backbone_path,
+            arch_kind=backend.arch_kind,
+            status="pass",
+            seconds=time.time() - start,
+            error_type="",
+            error_message="",
+            resolution_error_hint=(
+                ""
+                if requested_model_id == current_model_id
+                else f"audio fallback used: {current_model_id}"
+            ),
+            graph_stats={
+                "n_forward": graph.n_forward,
+                "n_backward": graph.n_backward,
+                "n_edges": len(graph.edges),
+                "score_shape_0": int(scores.shape[0]),
+                "score_shape_1": int(scores.shape[1]),
+            },
+        )
+
+    try:
+        return _attempt_audio(model_id)
+    except Exception as primary_exc:
+        if (
+            audio_fallback_model
+            and audio_fallback_model != model_id
+            and "ultravox" in audio_fallback_model.lower()
+        ):
+            try:
+                return _attempt_audio(audio_fallback_model)
+            except Exception as fallback_exc:
+                primary_message = str(primary_exc)
+                fallback_message = str(fallback_exc)
+                return SmokeRow(
+                    model_id=requested_model_id,
+                    modality="multimodal",
+                    adapter_name="",
+                    backbone_path="",
+                    arch_kind="",
+                    status="fail",
+                    seconds=time.time() - start,
+                    error_type=classify_error(fallback_exc),
+                    error_message=(
+                        f"primary={requested_model_id}: {primary_message}; "
+                        f"fallback={audio_fallback_model}: {fallback_message}"
+                    ),
+                    resolution_error_hint=f"audio fallback attempted: {audio_fallback_model}",
+                    graph_stats=None,
+                )
+
+        return SmokeRow(
+            model_id=requested_model_id,
+            modality="multimodal",
+            adapter_name="",
+            backbone_path="",
+            arch_kind="",
+            status="fail",
+            seconds=time.time() - start,
+            error_type=classify_error(primary_exc),
+            error_message=str(primary_exc),
+            resolution_error_hint="",
+            graph_stats=None,
+        )
+
+
 def run_matrix(
     *,
     text_models: Iterable[str],
@@ -366,6 +600,7 @@ def run_matrix(
     device: str,
     dtype: torch.dtype,
     hf_token: Optional[str],
+    audio_fallback_model: Optional[str],
     quiet: bool,
 ) -> Dict[str, Any]:
     rows: List[SmokeRow] = []
@@ -378,7 +613,15 @@ def run_matrix(
     for model_id in multimodal_models:
         if not quiet:
             print(f"[multimodal] {model_id}")
-        rows.append(run_multimodal_smoke_model(model_id, device=device, dtype=dtype, token=hf_token))
+        rows.append(
+            run_multimodal_smoke_model(
+                model_id,
+                device=device,
+                dtype=dtype,
+                token=hf_token,
+                audio_fallback_model=audio_fallback_model,
+            )
+        )
 
     return {
         "all_passed": all(row.status == "pass" for row in rows),
@@ -396,6 +639,7 @@ def main() -> None:
         device=args.device,
         dtype=to_dtype(args.dtype),
         hf_token=args.hf_token,
+        audio_fallback_model=args.audio_fallback_model,
         quiet=args.quiet,
     )
 

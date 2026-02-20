@@ -61,6 +61,7 @@ def test_run_matrix_schema_with_stubbed_model_runners(monkeypatch):
         device="cpu",
         dtype=smoke_matrix.to_dtype("float32"),
         hf_token=None,
+        audio_fallback_model="fixie-ai/ultravox-v0_5-llama-3_2-1b",
         quiet=True,
     )
 
@@ -116,6 +117,7 @@ def test_main_writes_report(monkeypatch, tmp_path):
                 "device": "cpu",
                 "dtype": "float32",
                 "hf_token": None,
+                "audio_fallback_model": "fixie-ai/ultravox-v0_5-llama-3_2-1b",
                 "output": str(out),
                 "quiet": True,
             },

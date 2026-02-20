@@ -199,6 +199,38 @@ Notes:
 - Ultravox example uses custom `pair_batch_preparer` (non-standard audio pipeline preprocessing).
 - This model may require access to upstream gated dependencies; use `--hf-token` with proper permissions.
 
+## PR4 Test Matrix
+
+Unified matrix entrypoint:
+- `scripts/test_stage_matrix.py`
+
+Default text parity models (vendor/TLens aligned):
+- `gpt2`
+- `Qwen/Qwen2-0.5B`
+- `facebook/opt-125m`
+- `TinyLlama/TinyLlama-1.1B-Chat-v1.0`
+
+Default multimodal smoke models:
+- `Qwen/Qwen2-VL-2B`
+- `llava-hf/llava-1.5-7b-hf`
+- `HuggingFaceTB/SmolVLM-Instruct`
+- `Qwen/Qwen2-Audio-7B` (audio fallback supported via `--audio-fallback-model`)
+
+The stage matrix writes a unified JSON report with:
+- model-level results,
+- method-level results,
+- error classification summary.
+
+Example:
+
+```bash
+python scripts/test_stage_matrix.py \
+  --device cpu \
+  --dtype float32 \
+  --strict \
+  --output reports/stage_matrix.json
+```
+
 ## Development Checklist
 
 When adding new model architecture support:
