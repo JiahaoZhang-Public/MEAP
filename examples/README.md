@@ -54,6 +54,14 @@ Notes:
 Output folder:
 - `examples/image/outputs/<run_name_or_timestamp>/`
 
+Non-empty top200 variant:
+- Script: `examples/image/Qwen2-VL-2B_nonempty.py`
+- Uses root-aware pruning (`input_layer0`) to avoid empty top200 pruned graph.
+
+```bash
+python examples/image/Qwen2-VL-2B_nonempty.py --dtype float16 --method EAP --image-size 128
+```
+
 ## Audio
 
 Script: `examples/audio/ultravox.py`
@@ -68,6 +76,14 @@ Optional audio source override:
 
 Output folder:
 - `examples/audio/outputs/<run_name_or_timestamp>/`
+
+Non-empty top200 variant:
+- Script: `examples/audio/ultravox_nonempty.py`
+- Uses root-aware pruning (`input_layer0`) to avoid empty top200 pruned graph.
+
+```bash
+python examples/audio/ultravox_nonempty.py --dtype float32 --method EAP
+```
 
 ## Clean/Corrupt Alignment Guide
 

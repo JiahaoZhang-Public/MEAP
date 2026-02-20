@@ -7,6 +7,10 @@ If clean/corrupt are not aligned, common failures include:
 - `Sequence length mismatch`
 - modality placeholder errors (image/audio tokens missing or inconsistent)
 
+Important note for small topn exports:
+- For multimodal models, `topn=200` with standard prune can still produce an empty pruned graph even when scores are non-zero.
+- Use non-empty variants (`examples/image/Qwen2-VL-2B_nonempty.py`, `examples/audio/ultravox_nonempty.py`) when you need stable non-empty top200 circuits.
+
 ## Core Rules
 
 1. Keep the same task across clean/corrupt.
@@ -39,6 +43,7 @@ Why this is valid:
 ## Image Example (Qwen2-VL-2B)
 
 Real example: `examples/image/Qwen2-VL-2B.py`
+Non-empty variant: `examples/image/Qwen2-VL-2B_nonempty.py`
 
 Clean/corrupt pair:
 - clean image: solid white RGB image
@@ -59,6 +64,7 @@ Why this is valid:
 ## Audio Example (Ultravox)
 
 Real example: `examples/audio/ultravox.py`
+Non-empty variant: `examples/audio/ultravox_nonempty.py`
 
 Clean/corrupt pair:
 - audio waveform: same clip for both
