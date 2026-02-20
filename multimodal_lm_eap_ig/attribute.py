@@ -433,11 +433,12 @@ def get_scores_ig_activations(
             nodes_list.append(graph.nodes[f"a{layer}.h0"])
             nodes_list.append(graph.nodes[f"m{layer}"])
 
+        batch_steps = 0
         for node in nodes_list:
             clean_acts = activations_clean[:, :, graph.forward_index(node)]
             corrupt_acts = activations_corrupted[:, :, graph.forward_index(node)]
             for step in range(1, steps + 1):
-                total_steps += 1
+                batch_steps += 1
                 alpha = step / steps
                 backend_obj.zero_grad()
                 logits = forward_with_hooks(
@@ -453,6 +454,9 @@ def get_scores_ig_activations(
                 )
                 metric_value = metric(logits, clean_logits, batch)
                 metric_value.backward(retain_graph=True)
+        # Parity-first with vendor/eap-ig: total_steps is tracked per batch and
+        # overwritten, not accumulated across batches.
+        total_steps = batch_steps
 
     if total_items == 0:
         raise ValueError("Cannot score an empty batch iterable")

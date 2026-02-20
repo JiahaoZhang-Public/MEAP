@@ -79,10 +79,21 @@ Supported method names:
 
 Method execution routes are implemented in `attribute.py`.
 
+### Text Parity Status (PR2)
+
+Tier A models with strict vendor/TLens/HF parity target:
+- `gpt2-small` (HF id: `gpt2`)
+- `Qwen/Qwen2-0.5B`
+
+For `EAP-IG-activations`, implementation follows vendor parity-first semantics, including
+the per-batch step normalization behavior from upstream `vendor/eap-ig`.
+
 ## Known Limits
 
 - Attribution currently targets language-model trunk for multimodal models.
 - Falcon with interleaved fused QKV (`new_decoder_architecture=True`) is not yet supported for intervention path.
+- `exact` can be expensive on large graphs; parity scripts default to skip when
+  `edge_count > --max-exact-edges` and report an explicit skip reason.
 
 ## Minimal Usage
 

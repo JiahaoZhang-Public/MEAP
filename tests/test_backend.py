@@ -318,6 +318,36 @@ def test_attribute_non_smoke_methods_with_hf_backend_succeed(method, extra_kwarg
     assert torch.isfinite(scores).all()
 
 
+def test_eap_ig_activations_is_batch_duplication_invariant():
+    model = _tiny_llama_lm()
+    backend = HFLLMBackend(model)
+    graph = Graph.from_model(backend.config)
+    batch = _prepared_batch()
+
+    scores_one = attribute(
+        model=model,
+        backend=backend,
+        graph=graph,
+        batches=[batch],
+        metric=_metric,
+        method="EAP-IG-activations",
+        ig_steps=2,
+    ).clone()
+
+    graph_two = Graph.from_model(backend.config)
+    scores_two = attribute(
+        model=model,
+        backend=backend,
+        graph=graph_two,
+        batches=[batch, batch],
+        metric=_metric,
+        method="EAP-IG-activations",
+        ig_steps=2,
+    )
+
+    assert torch.allclose(scores_one, scores_two, atol=1e-6, rtol=1e-6)
+
+
 def test_attribute_requires_backend_for_non_tlens_model():
     graph = Graph.from_model(
         {

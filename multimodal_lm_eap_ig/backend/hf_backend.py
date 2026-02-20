@@ -629,16 +629,40 @@ class HFLLMBackend:
                 f"{hook_name} expected rank-4 updated attn result [batch, pos, heads, d_model], "
                 f"got {tuple(updated_projected_output.shape)}"
             )
-        desired_output = updated_projected_output.sum(dim=2)
-        bias = getattr(projection_module, "bias", None)
-        if bias is not None:
-            desired_output = desired_output - bias.view(1, 1, -1)
 
-        pinv = self._module_pinv(projection_module)
+        d_model = int(original_projection_input.shape[-1])
+        if d_model % self._config.n_heads != 0:
+            raise RuntimeError(
+                f"{hook_name} cannot split d_model={d_model} into n_heads={self._config.n_heads}"
+            )
+        d_head = d_model // self._config.n_heads
+        weight = projection_module.weight
+        if weight.ndim != 2:
+            raise RuntimeError(f"{hook_name} projection weight must be rank-2, got {weight.ndim}")
+
+        # We invert each input-head block independently so that interventions on
+        # per-head attn results remain as close as possible to TLens semantics.
         if projection_module.__class__.__name__ == "Conv1D":
-            replaced = torch.einsum("bpo,oi->bpi", desired_output, pinv)
+            head_projectors = weight.view(self._config.n_heads, d_head, d_model)
         else:
-            replaced = torch.einsum("bpo,oi->bpi", desired_output, pinv)
+            head_projectors = (
+                weight.view(d_model, self._config.n_heads, d_head)
+                .permute(1, 2, 0)
+                .contiguous()
+            )
+
+        pinv_heads = torch.linalg.pinv(head_projectors.to(dtype=torch.float64))
+        replaced_heads = torch.einsum(
+            "bpho,hod->bphd",
+            updated_projected_output.to(dtype=torch.float64),
+            pinv_heads,
+        ).to(dtype=weight.dtype, device=weight.device)
+        replaced = replaced_heads.reshape(
+            updated_projected_output.shape[0],
+            updated_projected_output.shape[1],
+            d_model,
+        )
+
         if replaced.shape != original_projection_input.shape:
             raise RuntimeError(
                 f"{hook_name} replacement input shape mismatch: "

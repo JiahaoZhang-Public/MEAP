@@ -62,6 +62,7 @@ class MethodParityRow:
     status: str
     seconds: float
     note: str
+    skip_reason: str
     vendor_vs_ours_tlens: DiffStats | None
     vendor_vs_ours_hf: DiffStats | None
     ours_tlens_vs_ours_hf: DiffStats | None
@@ -346,6 +347,10 @@ def run_method(
 
     vendor_graph = VendorGraph.from_model(tlens_model)
     if method == "exact" and len(vendor_graph.edges) > max_exact_edges:
+        skip_reason = (
+            f"exact skipped: edge_count={len(vendor_graph.edges)} exceeds "
+            f"--max-exact-edges={max_exact_edges}"
+        )
         return MethodParityRow(
             model_tlens=model_id_tlens,
             model_hf=model_id_hf,
@@ -353,10 +358,8 @@ def run_method(
             method=method,
             status="skip",
             seconds=0.0,
-            note=(
-                f"exact skipped: edge_count={len(vendor_graph.edges)} exceeds "
-                f"--max-exact-edges={max_exact_edges}"
-            ),
+            note=skip_reason,
+            skip_reason=skip_reason,
             vendor_vs_ours_tlens=None,
             vendor_vs_ours_hf=None,
             ours_tlens_vs_ours_hf=None,
@@ -419,6 +422,7 @@ def run_method(
         status=status,
         seconds=round(time.time() - start, 3),
         note="",
+        skip_reason="",
         vendor_vs_ours_tlens=d_vendor_tlens,
         vendor_vs_ours_hf=d_vendor_hf,
         ours_tlens_vs_ours_hf=d_tlens_hf,
@@ -506,6 +510,7 @@ def main() -> None:
                     status="error",
                     seconds=0.0,
                     note=str(exc)[:320],
+                    skip_reason="",
                     vendor_vs_ours_tlens=None,
                     vendor_vs_ours_hf=None,
                     ours_tlens_vs_ours_hf=None,
@@ -522,7 +527,7 @@ def main() -> None:
                     )
                 )
             elif row.status == "skip":
-                print(f"  status=skip note={row.note}")
+                print(f"  status=skip reason={row.skip_reason or row.note}")
             else:
                 print(f"  status={row.status} note={row.note}")
 
