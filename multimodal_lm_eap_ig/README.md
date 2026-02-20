@@ -39,6 +39,26 @@ Your dataloader yields raw pair data, and you pass one of:
 
 `processor` and `pair_batch_preparer` are mutually exclusive.
 
+## API/UX Rules (PR3)
+
+### Allowed Entrypoints
+
+Only two input styles are supported:
+1. `PreparedBatch` (fully user-prepared tensors), or
+2. raw clean/corrupt samples + explicit `processor` or explicit `pair_batch_preparer`.
+
+### Explicitly Disallowed Implicit Behavior
+
+- No implicit truncation in high-level APIs.
+- `max_length` is rejected in:
+  - `attribute_from_dataloader`
+  - `evaluate_graph_from_dataloader`
+  - `evaluate_baseline_from_dataloader`
+- If truncation is needed, do it explicitly in your own preprocessing:
+  - pass `processor_kwargs={"truncation": True, "max_length": ...}`, or
+  - truncate in your custom `pair_batch_preparer`, or
+  - build `PreparedBatch` directly with already-truncated tensors.
+
 ## `PreparedBatch` Requirements
 
 A valid `PreparedBatch` must satisfy:
@@ -127,6 +147,57 @@ result = attribute_from_dataloader(
     method="smoke",
 )
 ```
+
+## Minimal End-to-End Examples (Text / Image / Audio)
+
+Unified script:
+- `scripts/api_minimal_examples.py`
+
+### Text: `openai-community/gpt2`
+
+```bash
+python scripts/api_minimal_examples.py \
+  --example text-gpt2 \
+  --method smoke \
+  --device cpu \
+  --dtype float32
+```
+
+### Text: `Qwen/Qwen2-0.5B`
+
+```bash
+python scripts/api_minimal_examples.py \
+  --example text-qwen2 \
+  --method smoke \
+  --device cpu \
+  --dtype float32
+```
+
+### Image-Text: `Qwen/Qwen2-VL-2B`
+
+```bash
+python scripts/api_minimal_examples.py \
+  --example image-qwen2vl \
+  --method smoke \
+  --device cpu \
+  --dtype float32
+```
+
+### Audio: `fixie-ai/ultravox-v0_5-llama-3_2-1b`
+
+```bash
+python scripts/api_minimal_examples.py \
+  --example audio-ultravox \
+  --audio-path /path/to/audio.wav \
+  --method smoke \
+  --device cpu \
+  --dtype float32 \
+  --hf-token <your_hf_token_if_needed>
+```
+
+Notes:
+- Ultravox example uses custom `pair_batch_preparer` (non-standard audio pipeline preprocessing).
+- This model may require access to upstream gated dependencies; use `--hf-token` with proper permissions.
 
 ## Development Checklist
 
