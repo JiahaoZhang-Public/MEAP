@@ -16,6 +16,45 @@ Development install:
 pip install -e ".[dev,multimodal,viz,docs]"
 ```
 
+## Stable API Contract (v1)
+
+Use these as stable entrypoints:
+
+- High-level API (`multimodal_lm_eap_ig.api`):
+  - `AttributionRunResult`
+  - `attribute_from_dataloader`
+  - `evaluate_graph_from_dataloader`
+  - `evaluate_baseline_from_dataloader`
+- Core public objects:
+  - `HFLLMBackend`, `TLensBackend`
+  - `PreparedBatch`, `RawPairBatch`, `DictPairBatch`
+  - `HFProcessorAdapter`
+  - `Graph`
+  - `register_architecture_adapter`, `inspect_model_architecture`, `resolve_backend`
+
+Internal (not stability-guaranteed) modules:
+- `multimodal_lm_eap_ig.attribute`
+- `multimodal_lm_eap_ig.evaluate`
+- `multimodal_lm_eap_ig.utils`
+
+### Deprecated Top-Level Symbols
+
+Deprecated since `1.0.0`, planned removal in `1.2.0` from package top-level:
+
+- `get_real_edge_scores`
+- `get_scores_clean_corrupted`
+- `get_scores_eap`
+- `get_scores_eap_ig`
+- `get_scores_exact`
+- `get_scores_ig_activations`
+- `get_scores_smoke`
+- `build_default_llava_processor`
+- `prepare_llava_token_pair_batch`
+
+Migration:
+- Import these from their implementation modules (`multimodal_lm_eap_ig.attribute` / `multimodal_lm_eap_ig.preparer`) if needed.
+- Prefer high-level APIs in `multimodal_lm_eap_ig.api` for long-term compatibility.
+
 ## Design Goal
 
 - User controls data preparation.

@@ -1,3 +1,8 @@
+"""Internal hook/runtime utilities.
+
+This module is not part of the stable public API surface.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

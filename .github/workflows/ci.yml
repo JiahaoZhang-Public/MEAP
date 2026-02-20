@@ -29,6 +29,9 @@ jobs:
       - name: Ruff
         run: ruff check multimodal_lm_eap_ig tests scripts
 
+      - name: Mypy (public API)
+        run: mypy
+
       - name: Pytest
         run: PYTHONPATH=. pytest -q
 

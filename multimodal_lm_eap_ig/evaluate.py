@@ -1,3 +1,9 @@
+"""Internal graph evaluation primitives.
+
+This module is low-level and not guaranteed stable across minor releases.
+Use high-level APIs from `multimodal_lm_eap_ig.api` when possible.
+"""
+
 from __future__ import annotations
 
 from typing import Any, Callable, Iterable, List, Literal, Optional, Union

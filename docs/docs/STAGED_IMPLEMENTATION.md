@@ -145,3 +145,32 @@ python scripts/test_stage_matrix.py --text-models gpt2 --multimodal-models Qwen/
 - New contributors can add an adapter with a fixed checklist.
 - Text-model onboarding has explicit strict parity thresholds.
 - VLM onboarding has explicit smoke + diagnostics requirements.
+
+## v1 PR2: API Stabilization (Public vs Internal)
+
+### Scope
+- Freeze a stable public API around `__init__.py` and `api.py`.
+- Mark low-level implementation modules as internal.
+- Add deprecation warnings and removal timeline for legacy top-level exports.
+- Add public-surface type-checking gate.
+
+### Implemented
+- Added explicit stable API module contract in:
+  - `multimodal_lm_eap_ig/api.py`
+  - `multimodal_lm_eap_ig/__init__.py`
+- Added deprecation warnings (deprecated in `1.0.0`, planned removal in `1.2.0`) for
+  low-level top-level symbols.
+- Marked internal modules with internal-use docstrings:
+  - `multimodal_lm_eap_ig/attribute.py`
+  - `multimodal_lm_eap_ig/evaluate.py`
+  - `multimodal_lm_eap_ig/utils.py`
+- Added API stability documentation:
+  - `docs/docs/API_STABILITY.md`
+- Added API contract tests:
+  - `tests/test_public_api_contract.py`
+- Added mypy public-surface check in CI and config in `pyproject.toml`.
+
+### Acceptance
+- Users can rely on documented stable APIs without importing internal modules.
+- Deprecated paths emit explicit warning + removal timeline.
+- Type checks run on the stable public surface in CI.

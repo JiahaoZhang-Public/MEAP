@@ -1,3 +1,8 @@
+"""Stable high-level API surface for mm-eap.
+
+Use this module for production usage. Lower-level implementation modules are internal.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -241,3 +246,12 @@ def evaluate_baseline_from_dataloader(
         run_corrupted=run_corrupted,
         quiet=quiet,
     )
+
+
+__all__ = [
+    "AttributionRunResult",
+    "MetricFn",
+    "attribute_from_dataloader",
+    "evaluate_baseline_from_dataloader",
+    "evaluate_graph_from_dataloader",
+]
