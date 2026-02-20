@@ -15,10 +15,13 @@ from .attribute import (
     get_scores_smoke,
 )
 from .backend import (
+    ArchitectureAdapter,
     BackendConfig,
     BackendRunInputs,
     HFLLMBackend,
     TLensBackend,
+    inspect_model_architecture,
+    register_architecture_adapter,
     resolve_backend,
 )
 from .batch import (
@@ -48,6 +51,7 @@ __all__ = [
     "attribute_from_dataloader",
     "BackendConfig",
     "BackendRunInputs",
+    "ArchitectureAdapter",
     "build_default_llava_processor",
     "DictPairBatch",
     "evaluate_baseline",
@@ -67,6 +71,8 @@ __all__ = [
     "prepare_llava_token_pair_batch",
     "prepare_pair_batch_with_processor",
     "RawPairBatch",
+    "register_architecture_adapter",
+    "inspect_model_architecture",
     "resolve_backend",
     "TLensBackend",
     "text_batch_to_prepared_batch",

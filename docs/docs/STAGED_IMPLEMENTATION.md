@@ -84,6 +84,36 @@ This document records the staged rollout requested for backend migration and mul
 - Text backend matrix script remains runnable.
 - Optional Qwen2-VL smoke can be invoked via matrix script.
 
+## Architecture Extension Update (Current)
+
+### Implemented
+- Backend split from monolithic file into package layout:
+  - `multimodal_lm_eap_ig/backend/base.py`
+  - `multimodal_lm_eap_ig/backend/registry.py`
+  - `multimodal_lm_eap_ig/backend/hf_backend.py`
+  - `multimodal_lm_eap_ig/backend/tlens_backend.py`
+  - `multimodal_lm_eap_ig/backend/adapters/*`
+- Added architecture adapters:
+  - `llama_like`, `gpt2_like`, `opt_like`, `falcon_like`, `mpt_like`
+- Added adapter registration/diagnostics APIs:
+  - `register_architecture_adapter`
+  - `inspect_model_architecture`
+- Added template for new adapters:
+  - `multimodal_lm_eap_ig/backend/adapters/_template.py`
+- Added tests:
+  - `tests/test_adapter_registry.py`
+  - `tests/test_adapter_template_contract.py`
+  - `tests/test_backend_falcon_like.py`
+  - `tests/test_backend_mpt_like.py`
+- Script updates:
+  - `scripts/smoke_hf_matrix.py` now reports `adapter_name`
+  - `scripts/test_text_vendor_parity.py` now reports top-k overlap and strict-mode threshold checks
+  - new diagnostics script: `scripts/inspect_adapter_registry.py`
+
+### Known Limits
+- Falcon `new_decoder_architecture=True` interleaved fused QKV layout is diagnosed but not yet supported for intervention hooks.
+- VLM path still attributes language trunk only in this stage.
+
 ## Recommended Validation Commands
 
 ```bash

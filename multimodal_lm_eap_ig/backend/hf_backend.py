@@ -1,500 +1,28 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from types import SimpleNamespace
-from typing import (
-    Any,
-    Callable,
-    Dict,
-    Iterable,
-    List,
-    Optional,
-    Protocol,
-    Sequence,
-    Tuple,
-    runtime_checkable,
-)
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import torch
 from torch import Tensor
 import torch.nn.functional as F
 
-BackendHookSpec = Tuple[str, Callable]
-
-
-@dataclass
-class BackendRunInputs:
-    input_ids: Optional[Tensor]
-    inputs_embeds: Optional[Tensor]
-    attention_mask: Optional[Tensor]
-    extra_fwd_hooks: List[BackendHookSpec] = field(default_factory=list)
-    model_kwargs: Dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
-class BackendConfig:
-    device: torch.device
-    dtype: torch.dtype
-    d_model: int
-    n_layers: int
-    n_heads: int
-    parallel_attn_mlp: bool
-    n_key_value_heads: Optional[int]
-    use_attn_result: bool
-    use_split_qkv_input: bool
-    use_hook_mlp_in: bool
-    use_normalization_before_and_after: bool = False
-
-    def to_graph_dict(self) -> Dict[str, Any]:
-        return {
-            "n_layers": self.n_layers,
-            "n_heads": self.n_heads,
-            "parallel_attn_mlp": self.parallel_attn_mlp,
-            "d_model": self.d_model,
-        }
-
-
-@runtime_checkable
-class ModelBackend(Protocol):
-    kind: str
-
-    @property
-    def config(self) -> BackendConfig:
-        ...
-
-    @property
-    def tokenizer(self):
-        ...
-
-    @property
-    def tokenization_model(self):
-        ...
-
-    def prepare_inputs(self, inputs: Dict[str, Tensor]) -> BackendRunInputs:
-        ...
-
-    def forward(
-        self,
-        run_inputs: BackendRunInputs,
-        *,
-        fwd_hooks: Optional[List[BackendHookSpec]] = None,
-        bwd_hooks: Optional[List[BackendHookSpec]] = None,
-    ) -> Tensor:
-        ...
-
-    def zero_grad(self) -> None:
-        ...
-
-    def parameters(self) -> Iterable[torch.nn.Parameter]:
-        ...
-
-
-@dataclass
-class _HookTarget:
-    module: torch.nn.Module
-    mode: str  # 'forward' or 'pre'
-    output_index: Optional[int] = None
-
-
-@dataclass
-class AdapterResolution:
-    path: str
-    base_model: torch.nn.Module
-    arch_kind: str
-    layers: List[torch.nn.Module]
-    layer_accessors: Dict[str, str]
-    embed_module: torch.nn.Module
-    resid_module: torch.nn.Module
-
-
-@runtime_checkable
-class ArchitectureAdapter(Protocol):
-    name: str
-    arch_kind: str
-
-    def resolve_from_backbone(
-        self,
-        path: str,
-        backbone: torch.nn.Module,
-    ) -> Optional[AdapterResolution]:
-        ...
-
-    def attn_result_module(self, attn_module: torch.nn.Module) -> torch.nn.Module:
-        ...
-
-    def qkv_hook_modules(self, attn_module: torch.nn.Module) -> Dict[str, torch.nn.Module]:
-        ...
-
-
-def _iter_decoder_backbone_candidates(model: torch.nn.Module) -> List[Tuple[str, torch.nn.Module]]:
-    candidates: List[Tuple[str, torch.nn.Module]] = []
-
-    def _add(path: str, module: Any) -> None:
-        if isinstance(module, torch.nn.Module):
-            candidates.append((path, module))
-
-    _add("model", model)
-
-    if hasattr(model, "language_model"):
-        lm = model.language_model
-        _add("model.language_model", lm)
-        _add("model.language_model.model", getattr(lm, "model", None))
-        _add("model.language_model.model.decoder", getattr(getattr(lm, "model", None), "decoder", None))
-        _add("model.language_model.transformer", getattr(lm, "transformer", None))
-        _add("model.language_model.decoder", getattr(lm, "decoder", None))
-
-    _add("model.model", getattr(model, "model", None))
-    _add("model.model.language_model", getattr(getattr(model, "model", None), "language_model", None))
-    _add("model.model.text_model", getattr(getattr(model, "model", None), "text_model", None))
-    _add("model.model.decoder", getattr(getattr(model, "model", None), "decoder", None))
-    _add("model.text_model", getattr(model, "text_model", None))
-    _add("model.model.model", getattr(getattr(model, "model", None), "model", None))
-    _add("model.transformer", getattr(model, "transformer", None))
-    _add("model.decoder", getattr(model, "decoder", None))
-
-    deduped: List[Tuple[str, torch.nn.Module]] = []
-    seen = set()
-    for path, module in candidates:
-        marker = id(module)
-        if marker in seen:
-            continue
-        seen.add(marker)
-        deduped.append((path, module))
-    return deduped
-
-
-class _BaseArchitectureAdapter:
-    name: str
-    arch_kind: str
-    layer_accessors: Dict[str, str]
-    required_attn_attrs: Sequence[str]
-
-    def matches_backbone(self, backbone: torch.nn.Module) -> bool:
-        raise NotImplementedError
-
-    def get_layers(self, backbone: torch.nn.Module) -> Optional[Sequence[torch.nn.Module]]:
-        raise NotImplementedError
-
-    def get_embed_module(self, backbone: torch.nn.Module) -> Optional[torch.nn.Module]:
-        raise NotImplementedError
-
-    def get_resid_module(
-        self,
-        backbone: torch.nn.Module,
-        layers: List[torch.nn.Module],
-    ) -> torch.nn.Module:
-        raise NotImplementedError
-
-    def attn_result_module(self, attn_module: torch.nn.Module) -> torch.nn.Module:
-        raise NotImplementedError
-
-    def qkv_hook_modules(self, attn_module: torch.nn.Module) -> Dict[str, torch.nn.Module]:
-        raise NotImplementedError
-
-    def resolve_from_backbone(
-        self,
-        path: str,
-        backbone: torch.nn.Module,
-    ) -> Optional[AdapterResolution]:
-        if not self.matches_backbone(backbone):
-            return None
-
-        layers_raw = self.get_layers(backbone)
-        if layers_raw is None:
-            raise ValueError(f"{self.name} @ {path}: missing decoder layer stack")
-        layers = list(layers_raw)
-        if len(layers) == 0:
-            raise ValueError(f"{self.name} @ {path}: decoder layer stack is empty")
-
-        for idx, layer in enumerate(layers):
-            missing = [attr for attr in self.layer_accessors.values() if not hasattr(layer, attr)]
-            if missing:
-                raise ValueError(
-                    f"{self.name} @ {path}: layer {idx} missing required attrs {missing}"
-                )
-            attn = getattr(layer, self.layer_accessors["attn"])
-            missing_attn = [attr for attr in self.required_attn_attrs if not hasattr(attn, attr)]
-            if missing_attn:
-                raise ValueError(
-                    f"{self.name} @ {path}: layer {idx} attention missing attrs {missing_attn}"
-                )
-
-        embed_module = self.get_embed_module(backbone)
-        if embed_module is None:
-            raise ValueError(f"{self.name} @ {path}: missing embedding module")
-
-        resid_module = self.get_resid_module(backbone, layers)
-        return AdapterResolution(
-            path=path,
-            base_model=backbone,
-            arch_kind=self.arch_kind,
-            layers=layers,
-            layer_accessors=dict(self.layer_accessors),
-            embed_module=embed_module,
-            resid_module=resid_module,
-        )
-
-
-class LlamaLikeAdapter(_BaseArchitectureAdapter):
-    name = "llama_like"
-    arch_kind = "llama_like"
-    layer_accessors = {
-        "attn": "self_attn",
-        "mlp": "mlp",
-        "ln1": "input_layernorm",
-        "ln2": "post_attention_layernorm",
-    }
-    required_attn_attrs = ("q_proj", "k_proj", "v_proj", "o_proj")
-
-    def matches_backbone(self, backbone: torch.nn.Module) -> bool:
-        return hasattr(backbone, "layers")
-
-    def get_layers(self, backbone: torch.nn.Module) -> Optional[Sequence[torch.nn.Module]]:
-        return getattr(backbone, "layers", None)
-
-    def get_embed_module(self, backbone: torch.nn.Module) -> Optional[torch.nn.Module]:
-        return getattr(backbone, "embed_tokens", None)
-
-    def get_resid_module(self, backbone: torch.nn.Module, layers: List[torch.nn.Module]) -> torch.nn.Module:
-        return getattr(backbone, "norm", layers[-1])
-
-    def attn_result_module(self, attn_module: torch.nn.Module) -> torch.nn.Module:
-        return attn_module.o_proj
-
-    def qkv_hook_modules(self, attn_module: torch.nn.Module) -> Dict[str, torch.nn.Module]:
-        return {
-            "q": attn_module.q_proj,
-            "k": attn_module.k_proj,
-            "v": attn_module.v_proj,
-        }
-
-
-class GPT2LikeAdapter(_BaseArchitectureAdapter):
-    name = "gpt2_like"
-    arch_kind = "gpt2_like"
-    layer_accessors = {
-        "attn": "attn",
-        "mlp": "mlp",
-        "ln1": "ln_1",
-        "ln2": "ln_2",
-    }
-    required_attn_attrs = ("c_attn", "c_proj")
-
-    def matches_backbone(self, backbone: torch.nn.Module) -> bool:
-        return hasattr(backbone, "h")
-
-    def get_layers(self, backbone: torch.nn.Module) -> Optional[Sequence[torch.nn.Module]]:
-        return getattr(backbone, "h", None)
-
-    def get_embed_module(self, backbone: torch.nn.Module) -> Optional[torch.nn.Module]:
-        return getattr(backbone, "wte", None)
-
-    def get_resid_module(self, backbone: torch.nn.Module, layers: List[torch.nn.Module]) -> torch.nn.Module:
-        return getattr(backbone, "ln_f", layers[-1])
-
-    def attn_result_module(self, attn_module: torch.nn.Module) -> torch.nn.Module:
-        return attn_module.c_proj
-
-    def qkv_hook_modules(self, attn_module: torch.nn.Module) -> Dict[str, torch.nn.Module]:
-        return {
-            "q": attn_module.c_attn,
-            "k": attn_module.c_attn,
-            "v": attn_module.c_attn,
-        }
-
-
-class OPTLikeAdapter(_BaseArchitectureAdapter):
-    name = "opt_like"
-    arch_kind = "opt_like"
-    layer_accessors = {
-        "attn": "self_attn",
-        "mlp": "fc2",
-        "ln1": "self_attn_layer_norm",
-        "ln2": "final_layer_norm",
-    }
-    required_attn_attrs = ("q_proj", "k_proj", "v_proj", "out_proj")
-
-    def matches_backbone(self, backbone: torch.nn.Module) -> bool:
-        return hasattr(backbone, "layers")
-
-    def get_layers(self, backbone: torch.nn.Module) -> Optional[Sequence[torch.nn.Module]]:
-        return getattr(backbone, "layers", None)
-
-    def get_embed_module(self, backbone: torch.nn.Module) -> Optional[torch.nn.Module]:
-        return getattr(backbone, "embed_tokens", None)
-
-    def get_resid_module(self, backbone: torch.nn.Module, layers: List[torch.nn.Module]) -> torch.nn.Module:
-        if hasattr(backbone, "final_layer_norm"):
-            return backbone.final_layer_norm
-        if hasattr(backbone, "project_out"):
-            return backbone.project_out
-        return layers[-1]
-
-    def attn_result_module(self, attn_module: torch.nn.Module) -> torch.nn.Module:
-        return attn_module.out_proj
-
-    def qkv_hook_modules(self, attn_module: torch.nn.Module) -> Dict[str, torch.nn.Module]:
-        return {
-            "q": attn_module.q_proj,
-            "k": attn_module.k_proj,
-            "v": attn_module.v_proj,
-        }
-
-
-def _parse_torch_dtype(dtype: Any) -> torch.dtype:
-    if isinstance(dtype, torch.dtype):
-        return dtype
-    if isinstance(dtype, str) and hasattr(torch, dtype):
-        parsed = getattr(torch, dtype)
-        if isinstance(parsed, torch.dtype):
-            return parsed
-    return torch.float32
-
-
-def _first_parameter_device_dtype(model: torch.nn.Module) -> Tuple[torch.device, torch.dtype]:
-    first_param = next(model.parameters(), None)
-    if first_param is None:
-        return torch.device("cpu"), torch.float32
-    return first_param.device, first_param.dtype
-
-
-def _is_hooked_transformer_model(model: Any) -> bool:
-    try:
-        from transformer_lens import HookedTransformer
-    except Exception:
-        return False
-    return isinstance(model, HookedTransformer)
-
-
-class TLensBackend:
-    kind = "tlens"
-
-    def __init__(self, model: Any):
-        if not _is_hooked_transformer_model(model):
-            raise TypeError("TLensBackend requires a transformer_lens.HookedTransformer instance")
-        self.model = model
-        cfg = model.cfg
-        device = torch.device(getattr(cfg, "device", "cpu"))
-        dtype = _parse_torch_dtype(getattr(cfg, "dtype", torch.float32))
-        self._config = BackendConfig(
-            device=device,
-            dtype=dtype,
-            d_model=cfg.d_model,
-            n_layers=cfg.n_layers,
-            n_heads=cfg.n_heads,
-            parallel_attn_mlp=cfg.parallel_attn_mlp,
-            n_key_value_heads=cfg.n_key_value_heads,
-            use_attn_result=bool(getattr(cfg, "use_attn_result", False)),
-            use_split_qkv_input=bool(getattr(cfg, "use_split_qkv_input", False)),
-            use_hook_mlp_in=bool(getattr(cfg, "use_hook_mlp_in", False)),
-            use_normalization_before_and_after=bool(
-                getattr(cfg, "use_normalization_before_and_after", False)
-            ),
-        )
-
-    @property
-    def config(self) -> BackendConfig:
-        return self._config
-
-    @property
-    def tokenizer(self):
-        return self.model.tokenizer
-
-    @property
-    def tokenization_model(self):
-        return self.model
-
-    def prepare_inputs(self, inputs: Dict[str, Tensor]) -> BackendRunInputs:
-        device = self._config.device
-        dtype = self._config.dtype
-
-        tokens = inputs.get("input_ids")
-        if tokens is None:
-            tokens = inputs.get("tokens")
-
-        input_embeds = inputs.get("inputs_embeds")
-
-        if tokens is None and input_embeds is None:
-            raise ValueError("Model inputs must include input_ids/tokens or inputs_embeds")
-
-        if input_embeds is not None:
-            input_embeds = input_embeds.to(device=device, dtype=dtype)
-
-        if tokens is None:
-            if input_embeds is None or input_embeds.ndim != 3:
-                raise ValueError("inputs_embeds must be rank-3 [batch, seq, d_model]")
-            pad_token_id = getattr(self.model.tokenizer, "pad_token_id", None)
-            if pad_token_id is None:
-                pad_token_id = getattr(self.model.tokenizer, "eos_token_id", 0)
-            tokens = torch.full(
-                input_embeds.shape[:2],
-                int(pad_token_id),
-                device=device,
-                dtype=torch.long,
-            )
-        else:
-            tokens = tokens.to(device=device, dtype=torch.long)
-
-        attention_mask = inputs.get("attention_mask")
-        if attention_mask is not None:
-            attention_mask = attention_mask.to(device=device)
-        else:
-            attention_mask = torch.ones(tokens.shape, device=device, dtype=torch.long)
-
-        if attention_mask.shape != tokens.shape:
-            raise ValueError(
-                "attention_mask shape must match tokens shape. "
-                f"Got attention_mask={tuple(attention_mask.shape)} tokens={tuple(tokens.shape)}"
-            )
-
-        extra_fwd_hooks: List[BackendHookSpec] = []
-        if input_embeds is not None:
-
-            def _embed_override_hook(
-                activations: Tensor,
-                hook,
-                prepared_embeds: Tensor = input_embeds,
-            ) -> Tensor:
-                return prepared_embeds
-
-            extra_fwd_hooks.append(("hook_embed", _embed_override_hook))
-
-        return BackendRunInputs(
-            input_ids=tokens,
-            inputs_embeds=None,
-            attention_mask=attention_mask,
-            extra_fwd_hooks=extra_fwd_hooks,
-            model_kwargs={},
-        )
-
-    def forward(
-        self,
-        run_inputs: BackendRunInputs,
-        *,
-        fwd_hooks: Optional[List[BackendHookSpec]] = None,
-        bwd_hooks: Optional[List[BackendHookSpec]] = None,
-    ) -> Tensor:
-        merged_fwd_hooks = list(run_inputs.extra_fwd_hooks)
-        if fwd_hooks:
-            merged_fwd_hooks.extend(fwd_hooks)
-
-        kwargs = {"attention_mask": run_inputs.attention_mask}
-
-        if not merged_fwd_hooks and not bwd_hooks:
-            return self.model(run_inputs.input_ids, **kwargs)
-
-        hook_kwargs = {"fwd_hooks": merged_fwd_hooks}
-        if bwd_hooks is not None:
-            hook_kwargs["bwd_hooks"] = bwd_hooks
-
-        with self.model.hooks(**hook_kwargs):
-            return self.model(run_inputs.input_ids, **kwargs)
-
-    def zero_grad(self) -> None:
-        self.model.zero_grad(set_to_none=True)
-
-    def parameters(self) -> Iterable[torch.nn.Parameter]:
-        return self.model.parameters()
+from .base import (
+    AdapterResolution,
+    ArchitectureAdapter,
+    BackendConfig,
+    BackendHookSpec,
+    BackendRunInputs,
+    HookTarget,
+    ProjectionSpec,
+    first_parameter_device_dtype,
+)
+from .registry import (
+    AdapterType,
+    inspect_model_architecture,
+    instantiate_adapters,
+    resolve_adapter_resolution,
+)
 
 
 class HFLLMBackend:
@@ -508,6 +36,9 @@ class HFLLMBackend:
         device: Optional[torch.device] = None,
         dtype: Optional[torch.dtype] = None,
         ungroup_gqa: bool = True,
+        adapter_registry: Optional[Sequence[AdapterType]] = None,
+        adapter_name: Optional[str] = None,
+        strict_arch: bool = True,
     ):
         if not hasattr(model, "config"):
             raise TypeError("HFLLMBackend requires a model with a HuggingFace-like .config")
@@ -522,18 +53,16 @@ class HFLLMBackend:
             self.model.to(**cast_kwargs)
 
         self._tokenizer = tokenizer
-        self._adapter_registry: List[ArchitectureAdapter] = [
-            LlamaLikeAdapter(),
-            GPT2LikeAdapter(),
-            OPTLikeAdapter(),
-        ]
-        self._adapter, resolution = self._resolve_architecture(self.model)
+        self._strict_arch = strict_arch
+        self._adapter_registry = instantiate_adapters(adapter_registry)
+        self._adapter, resolution = self._resolve_architecture(self.model, adapter_name=adapter_name)
         self._base_model = resolution.base_model
         self._arch_kind = resolution.arch_kind
         self._layers = resolution.layers
         self._layer_accessors = resolution.layer_accessors
         self._embed_module = resolution.embed_module
         self._resid_module = resolution.resid_module
+        self._qkv_projection_specs: Dict[str, ProjectionSpec] = {}
         if ungroup_gqa:
             self._maybe_ungroup_gqa_inplace()
         self._hook_targets = self._build_hook_targets()
@@ -555,6 +84,10 @@ class HFLLMBackend:
     @property
     def supported_hook_names(self) -> List[str]:
         return sorted(self._hook_targets.keys())
+
+    @property
+    def adapter_name(self) -> str:
+        return self._adapter.name
 
     def _expand_projection_to_full_heads(
         self,
@@ -609,6 +142,8 @@ class HFLLMBackend:
         return proj
 
     def _maybe_ungroup_gqa_inplace(self) -> None:
+        if not self._adapter.supports_gqa_ungroup:
+            return
         # Mirror TransformerLens ungroup_grouped_query_attention semantics by expanding
         # k/v projections to n_heads and disabling repeat_kv groups in attention modules.
         attn_attr = self._layer_accessors["attn"]
@@ -652,6 +187,8 @@ class HFLLMBackend:
                 raise RuntimeError(
                     f"Cannot ungroup GQA when n_heads={n_heads} is not divisible by n_kv_heads={n_kv_heads}"
                 )
+            if not hasattr(attn, "k_proj") or not hasattr(attn, "v_proj"):
+                continue
 
             repeats = n_heads // n_kv_heads
             self._expand_projection_to_full_heads(
@@ -681,27 +218,29 @@ class HFLLMBackend:
     def _resolve_architecture(
         self,
         model: torch.nn.Module,
+        *,
+        adapter_name: Optional[str] = None,
     ) -> Tuple[ArchitectureAdapter, AdapterResolution]:
-        candidates = _iter_decoder_backbone_candidates(model)
-        errors: List[str] = []
-
-        for path, backbone in candidates:
-            for adapter in self._adapter_registry:
-                try:
-                    resolved = adapter.resolve_from_backbone(path, backbone)
-                except ValueError as exc:
-                    errors.append(str(exc))
-                    continue
-                if resolved is not None:
-                    return adapter, resolved
-
-        candidate_paths = [path for path, _ in candidates]
-        details = "; ".join(errors[:6]) if errors else "no adapter produced a compatible backbone"
-        raise ValueError(
-            "Unsupported HF architecture for HFLLMBackend. "
-            f"Tried backbones: {candidate_paths}. "
-            f"Expected decoder-like structure with attention, MLP, and norm modules. Details: {details}"
-        )
+        try:
+            adapter, resolved, _, _ = resolve_adapter_resolution(
+                model,
+                self._adapter_registry,
+                adapter_name=adapter_name,
+            )
+            return adapter, resolved
+        except ValueError as exc:
+            if self._strict_arch:
+                raise
+            diag = inspect_model_architecture(model, self._adapter_registry)
+            selected = diag.get("selected")
+            if selected is not None:
+                adapter, resolved, _, _ = resolve_adapter_resolution(
+                    model,
+                    self._adapter_registry,
+                    adapter_name=selected["adapter"],
+                )
+                return adapter, resolved
+            raise ValueError(f"{exc} Diagnostics: {diag.get('selection_error', 'no match')}") from exc
 
     def _normalize_config(self, model: torch.nn.Module) -> BackendConfig:
         cfg = model.config
@@ -735,7 +274,7 @@ class HFLLMBackend:
                 f"{missing_cfg}."
             )
 
-        device, model_dtype = _first_parameter_device_dtype(self.model)
+        device, model_dtype = first_parameter_device_dtype(self.model)
         n_key_value_heads = getattr(source_cfg, "num_key_value_heads", None)
 
         return BackendConfig(
@@ -752,8 +291,8 @@ class HFLLMBackend:
             use_normalization_before_and_after=False,
         )
 
-    def _build_hook_targets(self) -> Dict[str, _HookTarget]:
-        targets: Dict[str, _HookTarget] = {"hook_embed": _HookTarget(self._embed_module, "forward")}
+    def _build_hook_targets(self) -> Dict[str, HookTarget]:
+        targets: Dict[str, HookTarget] = {"hook_embed": HookTarget(self._embed_module, "forward")}
 
         attn_attr = self._layer_accessors["attn"]
         mlp_attr = self._layer_accessors["mlp"]
@@ -763,19 +302,20 @@ class HFLLMBackend:
             ln2_module = getattr(layer, self._layer_accessors["ln2"])
 
             attn_result_module = self._adapter.attn_result_module(attn_module)
-            targets[f"blocks.{layer_idx}.attn.hook_result"] = _HookTarget(
+            targets[f"blocks.{layer_idx}.attn.hook_result"] = HookTarget(
                 attn_result_module,
                 "pre",
             )
             qkv_modules = self._adapter.qkv_hook_modules(attn_module)
-            targets[f"blocks.{layer_idx}.hook_q_input"] = _HookTarget(qkv_modules["q"], "forward")
-            targets[f"blocks.{layer_idx}.hook_k_input"] = _HookTarget(qkv_modules["k"], "forward")
-            targets[f"blocks.{layer_idx}.hook_v_input"] = _HookTarget(qkv_modules["v"], "forward")
+            for qkv in ("q", "k", "v"):
+                hook_name = f"blocks.{layer_idx}.hook_{qkv}_input"
+                targets[hook_name] = HookTarget(qkv_modules[qkv], "forward")
+                self._qkv_projection_specs[hook_name] = self._adapter.projection_spec(attn_module, qkv)
 
-            targets[f"blocks.{layer_idx}.hook_mlp_out"] = _HookTarget(mlp_module, "forward")
-            targets[f"blocks.{layer_idx}.hook_mlp_in"] = _HookTarget(ln2_module, "forward")
+            targets[f"blocks.{layer_idx}.hook_mlp_out"] = HookTarget(mlp_module, "forward")
+            targets[f"blocks.{layer_idx}.hook_mlp_in"] = HookTarget(ln2_module, "forward")
 
-        targets[f"blocks.{len(self._layers) - 1}.hook_resid_post"] = _HookTarget(
+        targets[f"blocks.{len(self._layers) - 1}.hook_resid_post"] = HookTarget(
             self._resid_module,
             "pre",
         )
@@ -841,7 +381,7 @@ class HFLLMBackend:
             model_kwargs=model_kwargs,
         )
 
-    def _make_forward_hook(self, name: str, hook_fn: Callable, target: _HookTarget):
+    def _make_forward_hook(self, name: str, hook_fn: Callable, target: HookTarget):
         return self._make_composed_forward_hook(name, target, [hook_fn], [])
 
     def _apply_forward_hook_chain(
@@ -885,7 +425,7 @@ class HFLLMBackend:
     def _make_composed_forward_hook(
         self,
         name: str,
-        target: _HookTarget,
+        target: HookTarget,
         fwd_hook_fns: List[Callable],
         bwd_hook_fns: List[Callable],
     ):
@@ -1129,6 +669,36 @@ class HFLLMBackend:
         # repeat() expects per-dimension multipliers, so keep batch/pos/model multipliers at 1.
         return qkv_input.unsqueeze(2).repeat(1, 1, self._config.n_heads, 1)
 
+    def _qkv_projection_spec(self, hook_name: str) -> ProjectionSpec:
+        return self._qkv_projection_specs.get(hook_name, ProjectionSpec(kind="separate"))
+
+    def _fused_linear_qkv_slice(
+        self,
+        *,
+        out_dim: int,
+        hook_name: str,
+    ) -> Tuple[int, int, int]:
+        d_model = self._config.d_model
+        d_head = d_model // self._config.n_heads
+        q_dim = d_model
+        if out_dim == 3 * d_model:
+            kv_dim = d_model
+        elif out_dim > d_model and (out_dim - d_model) % (2 * d_head) == 0:
+            kv_heads = (out_dim - d_model) // (2 * d_head)
+            kv_dim = kv_heads * d_head
+        else:
+            raise RuntimeError(
+                f"{hook_name} unsupported fused-linear qkv output dim={out_dim} for d_model={d_model}"
+            )
+
+        if hook_name.endswith(".hook_q_input"):
+            return 0, q_dim, self._config.n_heads
+        if hook_name.endswith(".hook_k_input"):
+            return q_dim, q_dim + kv_dim, kv_dim // d_head
+        if hook_name.endswith(".hook_v_input"):
+            return q_dim + kv_dim, q_dim + 2 * kv_dim, kv_dim // d_head
+        raise ValueError(f"Cannot infer qkv letter from hook name: {hook_name}")
+
     def _apply_norm_module(self, module: torch.nn.Module, inputs: Tensor) -> Tensor:
         if isinstance(module, torch.nn.LayerNorm):
             return F.layer_norm(
@@ -1171,12 +741,14 @@ class HFLLMBackend:
             )
 
         delta_heads = updated_projected_input - original_projected_input
+        projection_spec = self._qkv_projection_spec(hook_name).kind
 
-        if (
-            self._arch_kind == "gpt2_like"
-            and projection_module.__class__.__name__ == "Conv1D"
-            and hasattr(projection_module, "weight")
-        ):
+        if projection_spec == "fused_linear_interleaved":
+            raise RuntimeError(
+                f"{hook_name} uses interleaved fused-linear qkv layout not supported in this stage"
+            )
+
+        if projection_spec == "fused_conv1d" and hasattr(projection_module, "weight"):
             weight = projection_module.weight
             d_model = self._config.d_model
             d_head = d_model // self._config.n_heads
@@ -1219,11 +791,20 @@ class HFLLMBackend:
             )
 
         d_head = d_model // self._config.n_heads
-        if out_dim % d_head != 0:
-            raise RuntimeError(
-                f"{hook_name} projection output dim {out_dim} is not divisible by d_head={d_head}"
-            )
-        out_heads = out_dim // d_head
+        if projection_spec == "fused_linear":
+            start, end, out_heads = self._fused_linear_qkv_slice(out_dim=out_dim, hook_name=hook_name)
+            weight = weight[start:end, :]
+            projection_output = projection_output.clone()
+            chunk_output = projection_output[:, :, start:end]
+        else:
+            if out_dim % d_head != 0:
+                raise RuntimeError(
+                    f"{hook_name} projection output dim {out_dim} is not divisible by d_head={d_head}"
+                )
+            out_heads = out_dim // d_head
+            chunk_output = projection_output
+            start = 0
+            end = out_dim
 
         if out_heads == self._config.n_heads:
             grouped_delta = delta_heads
@@ -1246,8 +827,11 @@ class HFLLMBackend:
         delta_out = delta_out_heads.reshape(
             projection_output.shape[0],
             projection_output.shape[1],
-            out_dim,
+            end - start,
         )
+        if projection_spec == "fused_linear":
+            projection_output[:, :, start:end] = chunk_output + delta_out
+            return projection_output
         return projection_output + delta_out
 
     def _qkv_letter_from_hook_name(self, hook_name: str) -> str:
@@ -1328,9 +912,15 @@ class HFLLMBackend:
         qkv_index = "qkv".index(qkv_letter)
         d_model = self._config.d_model
         d_head = d_model // self._config.n_heads
+        projection_spec = self._qkv_projection_spec(hook_name).kind
+
+        if projection_spec == "fused_linear_interleaved":
+            raise RuntimeError(
+                f"{hook_name} uses interleaved fused-linear qkv layout not supported in this stage"
+            )
 
         # GPT2 Conv1D-style fused qkv projection: weight shape [in, 3*d_model].
-        if int(weight.shape[0]) == d_model and int(weight.shape[1]) == 3 * d_model:
+        if projection_spec == "fused_conv1d" and int(weight.shape[0]) == d_model and int(weight.shape[1]) == 3 * d_model:
             start = qkv_index * d_model
             end = (qkv_index + 1) * d_model
             grad_chunk = grad_output[:, :, start:end]
@@ -1350,11 +940,16 @@ class HFLLMBackend:
                 raise RuntimeError(
                     f"{hook_name} projection input dim mismatch: weight_in={in_dim}, expected={d_model}"
                 )
-            if out_dim % d_head != 0:
-                raise RuntimeError(
-                    f"{hook_name} projection output dim {out_dim} is not divisible by d_head={d_head}"
-                )
-            out_heads = out_dim // d_head
+            if projection_spec == "fused_linear":
+                start, end, out_heads = self._fused_linear_qkv_slice(out_dim=out_dim, hook_name=hook_name)
+                grad_output = grad_output[:, :, start:end]
+                weight = weight[start:end, :]
+            else:
+                if out_dim % d_head != 0:
+                    raise RuntimeError(
+                        f"{hook_name} projection output dim {out_dim} is not divisible by d_head={d_head}"
+                    )
+                out_heads = out_dim // d_head
             grad_heads = grad_output.view(
                 grad_output.shape[0],
                 grad_output.shape[1],
@@ -1560,20 +1155,3 @@ class HFLLMBackend:
 
     def parameters(self) -> Iterable[torch.nn.Parameter]:
         return self.model.parameters()
-
-
-def resolve_backend(model: Any, backend: Optional[ModelBackend]) -> ModelBackend:
-    if backend is not None:
-        return backend
-
-    if _is_hooked_transformer_model(model):
-        return TLensBackend(model)
-
-    raise ValueError(
-        "A backend must be provided when model is not a transformer_lens.HookedTransformer. "
-        "Instantiate HFLLMBackend(model=...) or TLensBackend(model=...) and pass backend=..."
-    )
-
-
-def is_hf_backend(backend: ModelBackend) -> bool:
-    return getattr(backend, "kind", "") == "hf"

@@ -100,6 +100,22 @@ def test_hf_backend_supports_gpt2_and_builds_hook_scaffold():
     assert "blocks.0.hook_resid_post" in names
 
 
+def test_hf_backend_supports_adapter_name_override():
+    gpt2 = GPT2LMHeadModel(
+        GPT2Config(n_layer=1, n_head=2, n_embd=16, n_positions=32, vocab_size=128)
+    )
+    backend = HFLLMBackend(gpt2, adapter_name="gpt2_like")
+    assert backend.adapter_name == "gpt2_like"
+
+
+def test_hf_backend_rejects_unknown_adapter_name():
+    gpt2 = GPT2LMHeadModel(
+        GPT2Config(n_layer=1, n_head=2, n_embd=16, n_positions=32, vocab_size=128)
+    )
+    with pytest.raises(ValueError, match="Unsupported HF architecture"):
+        HFLLMBackend(gpt2, adapter_name="does_not_exist")
+
+
 def test_hf_backend_supports_opt_and_builds_hook_scaffold():
     opt_model = _tiny_opt_lm()
     backend = HFLLMBackend(opt_model)

@@ -50,12 +50,14 @@ class DiffStats:
     max_abs: float
     mean_abs: float
     cosine: float
+    topk_overlap: float
 
 
 @dataclass
 class MethodParityRow:
     model_tlens: str
     model_hf: str
+    adapter_name: str
     method: str
     status: str
     seconds: float
@@ -78,6 +80,11 @@ def parse_args() -> argparse.Namespace:
         help="Comma-separated TLens model ids.",
     )
     parser.add_argument(
+        "--architectures",
+        default="",
+        help="Optional comma-separated adapter names to run (e.g. gpt2_like,llama_like).",
+    )
+    parser.add_argument(
         "--methods",
         default=",".join(DEFAULT_METHODS),
         help="Comma-separated method list.",
@@ -96,6 +103,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--max-abs-threshold", type=float, default=5e-3)
     parser.add_argument("--cosine-threshold", type=float, default=0.995)
+    parser.add_argument("--top-k", type=int, default=200)
+    parser.add_argument("--topk-overlap-threshold", type=float, default=0.9)
+    parser.add_argument("--strict", action="store_true", help="Use strict parity thresholds.")
     parser.add_argument("--output", default="")
     parser.add_argument("--quiet", action="store_true")
     return parser.parse_args()
@@ -284,7 +294,20 @@ def _as_float_cpu(x: Tensor) -> Tensor:
     return x.detach().to(dtype=torch.float32, device="cpu")
 
 
-def compute_diff_stats(a: Tensor, b: Tensor) -> DiffStats:
+def _topk_overlap(a: Tensor, b: Tensor, k: int) -> float:
+    if k <= 0:
+        return 1.0
+    size = min(int(a.numel()), int(b.numel()))
+    if size == 0:
+        return 1.0
+    k_eff = min(k, size)
+    idx_a = torch.topk(a.abs(), k=k_eff).indices.tolist()
+    idx_b = torch.topk(b.abs(), k=k_eff).indices.tolist()
+    overlap = len(set(idx_a).intersection(set(idx_b)))
+    return float(overlap) / float(k_eff)
+
+
+def compute_diff_stats(a: Tensor, b: Tensor, *, top_k: int) -> DiffStats:
     a_cpu = _as_float_cpu(a).reshape(-1)
     b_cpu = _as_float_cpu(b).reshape(-1)
     diff = (a_cpu - b_cpu).abs()
@@ -295,6 +318,7 @@ def compute_diff_stats(a: Tensor, b: Tensor) -> DiffStats:
         max_abs=float(diff.max().item()),
         mean_abs=float(diff.mean().item()),
         cosine=cosine,
+        topk_overlap=_topk_overlap(a_cpu, b_cpu, top_k),
     )
 
 
@@ -311,9 +335,12 @@ def run_method(
     max_exact_edges: int,
     max_abs_threshold: float,
     cosine_threshold: float,
+    topk_overlap_threshold: float,
+    top_k: int,
     quiet: bool,
     model_id_tlens: str,
     model_id_hf: str,
+    adapter_name: str,
 ) -> MethodParityRow:
     start = time.time()
 
@@ -322,6 +349,7 @@ def run_method(
         return MethodParityRow(
             model_tlens=model_id_tlens,
             model_hf=model_id_hf,
+            adapter_name=adapter_name,
             method=method,
             status="skip",
             seconds=0.0,
@@ -367,19 +395,26 @@ def run_method(
         **kwargs,
     )
 
-    d_vendor_tlens = compute_diff_stats(vendor_scores, ours_tlens_scores)
-    d_vendor_hf = compute_diff_stats(vendor_scores, ours_hf_scores)
-    d_tlens_hf = compute_diff_stats(ours_tlens_scores, ours_hf_scores)
+    d_vendor_tlens = compute_diff_stats(vendor_scores, ours_tlens_scores, top_k=top_k)
+    d_vendor_hf = compute_diff_stats(vendor_scores, ours_hf_scores, top_k=top_k)
+    d_tlens_hf = compute_diff_stats(ours_tlens_scores, ours_hf_scores, top_k=top_k)
 
     pass_tlens = (
-        d_vendor_tlens.max_abs <= max_abs_threshold or d_vendor_tlens.cosine >= cosine_threshold
+        d_vendor_tlens.max_abs <= max_abs_threshold
+        and d_vendor_tlens.cosine >= cosine_threshold
+        and d_vendor_tlens.topk_overlap >= topk_overlap_threshold
     )
-    pass_hf = d_vendor_hf.max_abs <= max_abs_threshold or d_vendor_hf.cosine >= cosine_threshold
+    pass_hf = (
+        d_vendor_hf.max_abs <= max_abs_threshold
+        and d_vendor_hf.cosine >= cosine_threshold
+        and d_vendor_hf.topk_overlap >= topk_overlap_threshold
+    )
     status = "pass" if (pass_tlens and pass_hf) else "fail"
 
     return MethodParityRow(
         model_tlens=model_id_tlens,
         model_hf=model_id_hf,
+        adapter_name=adapter_name,
         method=method,
         status=status,
         seconds=round(time.time() - start, 3),
@@ -400,7 +435,12 @@ def main() -> None:
     patch_vendor_cuda_literals()
 
     model_ids = [x.strip() for x in args.models.split(",") if x.strip()]
+    architecture_filters = {x.strip() for x in args.architectures.split(",") if x.strip()}
     methods = [x.strip() for x in args.methods.split(",") if x.strip()]
+    if args.strict:
+        args.max_abs_threshold = 1e-3
+        args.cosine_threshold = 0.995
+        args.topk_overlap_threshold = 0.9
 
     all_rows: list[MethodParityRow] = []
     for tlens_id in model_ids:
@@ -424,6 +464,12 @@ def main() -> None:
 
         tlens_backend = TLensBackend(tlens_model)
         hf_backend = HFLLMBackend(hf_model, tokenizer=tokenizer)
+        if architecture_filters and hf_backend.adapter_name not in architecture_filters:
+            print(
+                f"Skipping model pair tlens={tlens_id} hf={hf_id}: "
+                f"adapter={hf_backend.adapter_name} not in --architectures"
+            )
+            continue
 
         records = build_records(tokenizer, args.n_samples)
         vendor_batches = build_vendor_batches(records, args.batch_size)
@@ -444,14 +490,18 @@ def main() -> None:
                     max_exact_edges=args.max_exact_edges,
                     max_abs_threshold=args.max_abs_threshold,
                     cosine_threshold=args.cosine_threshold,
+                    topk_overlap_threshold=args.topk_overlap_threshold,
+                    top_k=args.top_k,
                     quiet=args.quiet,
                     model_id_tlens=tlens_id,
                     model_id_hf=hf_id,
+                    adapter_name=hf_backend.adapter_name,
                 )
             except Exception as exc:
                 row = MethodParityRow(
                     model_tlens=tlens_id,
                     model_hf=hf_id,
+                    adapter_name=hf_backend.adapter_name,
                     method=method,
                     status="error",
                     seconds=0.0,
@@ -464,10 +514,11 @@ def main() -> None:
 
             if row.status in {"pass", "fail"} and row.vendor_vs_ours_hf is not None:
                 print(
-                    "  status={status} vendor_vs_hf(max_abs={max_abs:.4e}, cosine={cosine:.6f})".format(
+                    "  status={status} vendor_vs_hf(max_abs={max_abs:.4e}, cosine={cosine:.6f}, topk={topk:.3f})".format(
                         status=row.status,
                         max_abs=row.vendor_vs_ours_hf.max_abs,
                         cosine=row.vendor_vs_ours_hf.cosine,
+                        topk=row.vendor_vs_ours_hf.topk_overlap,
                     )
                 )
             elif row.status == "skip":
@@ -490,6 +541,14 @@ def main() -> None:
             "max_exact_edges": args.max_exact_edges,
             "max_abs_threshold": args.max_abs_threshold,
             "cosine_threshold": args.cosine_threshold,
+            "top_k": args.top_k,
+            "topk_overlap_threshold": args.topk_overlap_threshold,
+            "architectures": sorted(architecture_filters),
+            "strict": bool(args.strict),
+        },
+        "by_adapter": {
+            adapter: sum(1 for row in all_rows if row.adapter_name == adapter)
+            for adapter in sorted({row.adapter_name for row in all_rows})
         },
         "all_passed": all(row.status in {"pass", "skip"} for row in all_rows),
         "results": [asdict(row) for row in all_rows],

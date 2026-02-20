@@ -4,9 +4,9 @@ This page tracks the current Hugging Face model support under the `HFLLMBackend`
 
 ## Scope
 
-- This stage guarantees `method="smoke"` for new models.
-- For HF backend, `EAP-IG-inputs` support remains model-dependent and is currently validated on existing text paths.
-- Full gradient methods (`EAP`, `clean-corrupted`, `EAP-IG-activations`, `exact`) are not expanded in this document.
+- New architecture onboarding is smoke-first.
+- Text Tier A parity target remains `HF ~= TLens ~= vendor` under strict thresholds.
+- VLM attribution remains language trunk only in this stage.
 
 ## Text Models
 
@@ -15,8 +15,11 @@ This page tracks the current Hugging Face model support under the `HFLLMBackend`
 | `gpt2` | GPT2-like adapter | Pass | CPU/GPU |
 | `distilgpt2` | GPT2-like adapter | Pass | CPU/GPU |
 | `facebook/opt-125m` | OPT-like adapter | Pass | CPU/GPU |
-| `Qwen/Qwen2-0.5B` | LLaMA-like adapter | Expected* | GPU recommended |
+| `Qwen/Qwen2-0.5B` | LLaMA-like adapter (GQA ungroup) | Pass | GPU recommended |
 | `TinyLlama/TinyLlama-1.1B-Chat-v1.0` | LLaMA-like adapter | Expected* | GPU recommended |
+| `tiiuae/falcon-rw-1b` | Falcon-like adapter | Expected* | GPU recommended |
+| `mosaicml/mpt-1b-redpajama-200b` | MPT-like adapter | Expected* | GPU recommended |
+| `google/gemma-2b` | LLaMA-like adapter | Expected* | GPU recommended |
 
 `Expected*`: compatible by structure and backend contract; validate in your environment via `scripts/smoke_hf_matrix.py`.
 
@@ -52,6 +55,30 @@ python scripts/test_stage_matrix.py \
   --device cpu \
   --dtype bfloat16 \
   --output reports/stage_matrix.json
+```
+
+### 3) Adapter diagnostics for a specific model
+
+```bash
+python scripts/inspect_adapter_registry.py \
+  --model-id Qwen/Qwen2-0.5B \
+  --output reports/adapter_registry_qwen2.json
+```
+
+## Add New Adapter (5 Minutes)
+
+1. Copy template: `multimodal_lm_eap_ig/backend/adapters/_template.py`.
+2. Implement `match`, layer accessors, attention projection mapping, and `projection_spec`.
+3. Register adapter in `multimodal_lm_eap_ig/backend/registry.py` default adapter list (or call `register_architecture_adapter`).
+4. Add tests:
+- adapter registry selection test (`tests/test_adapter_registry.py`)
+- backend smoke test for the new architecture (`tests/test_backend_<arch>.py`)
+5. Run:
+
+```bash
+ruff check multimodal_lm_eap_ig tests scripts
+pytest -q
+python scripts/smoke_hf_matrix.py --text-models <new-model-id> --multimodal-models \"\" --device cpu --dtype float32
 ```
 
 ## Common Failures and Fixes

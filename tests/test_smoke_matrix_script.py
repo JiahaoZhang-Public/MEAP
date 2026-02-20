@@ -25,6 +25,7 @@ def test_run_matrix_schema_with_stubbed_model_runners(monkeypatch):
         return smoke_matrix.SmokeRow(
             model_id="gpt2",
             modality="text",
+            adapter_name="gpt2_like",
             status="pass",
             seconds=0.1,
             error_type="",
@@ -37,6 +38,7 @@ def test_run_matrix_schema_with_stubbed_model_runners(monkeypatch):
         return smoke_matrix.SmokeRow(
             model_id="Qwen/Qwen2-VL-2B",
             modality="multimodal",
+            adapter_name="llama_like",
             status="fail",
             seconds=0.2,
             error_type="runtime",
@@ -62,6 +64,7 @@ def test_run_matrix_schema_with_stubbed_model_runners(monkeypatch):
     assert set(row.keys()) == {
         "model_id",
         "modality",
+        "adapter_name",
         "status",
         "seconds",
         "error_type",
@@ -77,6 +80,7 @@ def test_main_writes_report(monkeypatch, tmp_path):
             {
                 "model_id": "gpt2",
                 "modality": "text",
+                "adapter_name": "gpt2_like",
                 "status": "pass",
                 "seconds": 0.0,
                 "error_type": "",

@@ -47,6 +47,7 @@ DEFAULT_MULTIMODAL_MODELS = [
 class SmokeRow:
     model_id: str
     modality: str
+    adapter_name: str
     status: str
     seconds: float
     error_type: str
@@ -209,6 +210,7 @@ def run_text_smoke_model(
         return SmokeRow(
             model_id=model_id,
             modality="text",
+            adapter_name=backend.adapter_name,
             status="pass",
             seconds=time.time() - start,
             error_type="",
@@ -225,6 +227,7 @@ def run_text_smoke_model(
         return SmokeRow(
             model_id=model_id,
             modality="text",
+            adapter_name="",
             status="fail",
             seconds=time.time() - start,
             error_type=classify_error(exc),
@@ -278,6 +281,7 @@ def run_multimodal_smoke_model(
         return SmokeRow(
             model_id=model_id,
             modality="multimodal",
+            adapter_name=backend.adapter_name,
             status="pass",
             seconds=time.time() - start,
             error_type="",
@@ -294,6 +298,7 @@ def run_multimodal_smoke_model(
         return SmokeRow(
             model_id=model_id,
             modality="multimodal",
+            adapter_name="",
             status="fail",
             seconds=time.time() - start,
             error_type=classify_error(exc),
