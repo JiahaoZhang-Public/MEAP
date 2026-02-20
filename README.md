@@ -170,6 +170,21 @@ python scripts/real_attribution_modalities.py \
   --output-dir reports/real_attribution
 ```
 
+## Per-Modality Example Scripts
+
+Detailed per-model examples are available under `examples/`:
+
+- `/Users/jiahaozhang/Repo/project/multimodal-lm-eap-ig/examples/text/gpt2.py`
+- `/Users/jiahaozhang/Repo/project/multimodal-lm-eap-ig/examples/image/Qwen2-VL-2B.py`
+- `/Users/jiahaozhang/Repo/project/multimodal-lm-eap-ig/examples/audio/ultravox.py`
+
+Each script explicitly demonstrates:
+1. raw data -> process -> model inputs
+2. attribution
+3. graph visualization export
+
+See `/Users/jiahaozhang/Repo/project/multimodal-lm-eap-ig/examples/README.md` for usage and outputs.
+
 ## Supported Methods
 
 - `smoke`

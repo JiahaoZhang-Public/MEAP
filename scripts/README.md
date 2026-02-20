@@ -61,6 +61,11 @@ python scripts/real_attribution_modalities.py \
   --output-dir reports/real_attribution
 ```
 
+For per-model, per-modality walkthrough scripts, use:
+- `examples/text/gpt2.py`
+- `examples/image/Qwen2-VL-2B.py`
+- `examples/audio/ultravox.py`
+
 ## Archived Scripts
 
 Archived scripts are kept for historical/debug reference and are not part of the current recommended workflow:
