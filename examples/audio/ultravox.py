@@ -48,6 +48,27 @@ from multimodal_lm_eap_ig import (  # noqa: E402
 )
 from multimodal_lm_eap_ig.batch import PairBatchPreparer, validate_prepared_batch  # noqa: E402
 
+ULTRAVOX_AUDIO_PLACEHOLDER = "<|audio|>"
+
+
+def _pad_to_length(tensor: torch.Tensor, target_length: int, pad_value: int) -> torch.Tensor:
+    pad = target_length - int(tensor.shape[1])
+    if pad <= 0:
+        return tensor
+    return torch.nn.functional.pad(tensor, (0, pad), value=pad_value)
+
+
+def _resolve_pad_token_id(infer_pipe: Any) -> int:
+    tokenizer = getattr(infer_pipe, "tokenizer", None)
+    if tokenizer is None:
+        return 0
+    pad_token_id = getattr(tokenizer, "pad_token_id", None)
+    if pad_token_id is None:
+        pad_token_id = getattr(tokenizer, "eos_token_id", None)
+    if pad_token_id is None:
+        pad_token_id = 0
+    return int(pad_token_id)
+
 
 @dataclass
 class UltravoxPairPreparer(PairBatchPreparer):
@@ -91,11 +112,23 @@ class UltravoxPairPreparer(PairBatchPreparer):
         if "attention_mask" not in clean_inputs or "attention_mask" not in corrupt_inputs:
             raise ValueError("Ultravox preparer requires attention_mask in both clean and corrupt inputs.")
 
+        pad_token_id = _resolve_pad_token_id(self.infer_pipe)
+        target_len = max(int(clean_inputs["input_ids"].shape[1]), int(corrupt_inputs["input_ids"].shape[1]))
+        clean_inputs["input_ids"] = _pad_to_length(clean_inputs["input_ids"], target_len, pad_token_id)
+        corrupt_inputs["input_ids"] = _pad_to_length(corrupt_inputs["input_ids"], target_len, pad_token_id)
+        clean_inputs["attention_mask"] = _pad_to_length(clean_inputs["attention_mask"], target_len, 0)
+        corrupt_inputs["attention_mask"] = _pad_to_length(corrupt_inputs["attention_mask"], target_len, 0)
+
+        # PreparedBatch requires aligned clean/corrupt attention semantics.
+        shared_mask = torch.minimum(clean_inputs["attention_mask"], corrupt_inputs["attention_mask"])
+        clean_inputs["attention_mask"] = shared_mask
+        corrupt_inputs["attention_mask"] = shared_mask.clone()
+
         prepared = PreparedBatch(
             clean_inputs=clean_inputs,
             corrupt_inputs=corrupt_inputs,
             labels=labels,
-            input_lengths=clean_inputs["attention_mask"].sum(dim=-1),
+            input_lengths=shared_mask.sum(dim=-1),
             meta=meta,
         )
         validate_prepared_batch(prepared)
@@ -131,6 +164,21 @@ def build_output_dir(run_name: str) -> Path:
     return out
 
 
+def normalize_ultravox_user_prompt(prompt: str, *, audio_placeholder: str) -> str:
+    placeholder = str(audio_placeholder).strip() or ULTRAVOX_AUDIO_PLACEHOLDER
+    text = str(prompt).strip()
+    for token in ("<|audio_bos|>", "<|audio_eos|>", "<|AUDIO|>", ULTRAVOX_AUDIO_PLACEHOLDER):
+        if token == placeholder:
+            continue
+        text = text.replace(token, " ")
+
+    segments = [seg.strip() for seg in text.split(placeholder)]
+    merged = " ".join(seg for seg in segments if seg)
+    if merged:
+        return f"{placeholder}\n{merged}"
+    return placeholder
+
+
 def main() -> None:
     args = parse_args()
     output_dir = build_output_dir(args.run_name)
@@ -148,6 +196,11 @@ def main() -> None:
         backend = HFLLMBackend(model)
         infer_pipe = pipeline(model=args.model_id, trust_remote_code=True, token=args.hf_token)
         pair_preparer = UltravoxPairPreparer(infer_pipe=infer_pipe, device=backend.config.device)
+        audio_placeholder = getattr(
+            getattr(infer_pipe, "processor", None),
+            "audio_placeholder",
+            ULTRAVOX_AUDIO_PLACEHOLDER,
+        )
 
         # Step 1: raw audio and prompt turns
         audio, sr = load_audio_from_path_or_url(
@@ -157,11 +210,23 @@ def main() -> None:
         )
         turns_clean = [
             {"role": "system", "content": "You are concise."},
-            {"role": "user", "content": "Summarize the spoken content in one sentence."},
+            {
+                "role": "user",
+                "content": normalize_ultravox_user_prompt(
+                    "Summarize the spoken content in one sentence.",
+                    audio_placeholder=audio_placeholder,
+                ),
+            },
         ]
         turns_corrupt = [
             {"role": "system", "content": "You are concise."},
-            {"role": "user", "content": "Transcribe the spoken content."},
+            {
+                "role": "user",
+                "content": normalize_ultravox_user_prompt(
+                    "Transcribe the spoken content.",
+                    audio_placeholder=audio_placeholder,
+                ),
+            },
         ]
         labels = resolve_target_pair(getattr(infer_pipe, "tokenizer", None), model)
 

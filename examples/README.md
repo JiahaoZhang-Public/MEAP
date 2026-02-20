@@ -9,6 +9,25 @@ Each example script follows the same 3-stage flow:
 
 Outputs are saved under each modality folder and retained by run name/timestamp.
 
+## Requirements
+
+Recommended environment setup for running examples:
+
+```bash
+pip install -r requirements.txt
+pip install -e .[multimodal,viz]
+```
+
+Alternative one-shot setup:
+
+```bash
+pip install -r requirements-dev.txt
+```
+
+Visualization dependency:
+- `pygraphviz` is required for PNG graph rendering.
+- Install with: `pip install pygraphviz`
+
 ## Text
 
 Script: `examples/text/gpt2.py`
@@ -25,33 +44,31 @@ Output folder:
 Script: `examples/image/Qwen2-VL-2B.py`
 
 ```bash
-python "examples/image/Qwen2-VL-2B.py" --device cpu --dtype float32 --method EAP
+python examples/image/Qwen2-VL-2B.py --dtype float16 --method EAP --image-size 128
 ```
 
-Optional data source override:
-- `--image-path /local/path/image.jpg`
-- `--image-url https://...`
+Notes:
+- The script uses a white clean image and a black corrupt image.
+- Use `--image-size` to control dynamic image token count and memory use.
 
 Output folder:
 - `examples/image/outputs/<run_name_or_timestamp>/`
 
 ## Audio
 
-Script: ` examples/audio/ultravox.py`
+Script: `examples/audio/ultravox.py`
 
 ```bash
-python examples/audio/ultravox.py --device cpu --dtype float32 --method EAP
+python examples/audio/ultravox.py --dtype float32 --method EAP
 ```
 
-Optional data source override:
+Optional audio source override:
 - `--audio-path /local/path/audio.wav`
 - `--audio-url https://...`
 
 Output folder:
 - `examples/audio/outputs/<run_name_or_timestamp>/`
 
-## Notes
+## Clean/Corrupt Alignment Guide
 
-- For PNG graph export, install `pygraphviz` (`pip install pygraphviz`).
-- For audio URL/local loading, install `librosa` (`pip install librosa`).
-- All examples use language-model trunk attribution via HF backend.
+See `examples/CLEAN_CORRUPT_ALIGNMENT.md` for how to construct aligned clean/corrupt samples correctly, with one real example for each modality (text/image/audio).
