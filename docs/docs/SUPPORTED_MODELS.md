@@ -2,6 +2,9 @@
 
 This page tracks the current Hugging Face model support under the `HFLLMBackend` path.
 
+Quick onboarding guide:
+- `docs/docs/NEW_MODEL_ONBOARDING.md`
+
 ## Scope
 
 - New architecture onboarding is smoke-first.

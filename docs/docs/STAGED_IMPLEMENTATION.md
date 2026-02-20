@@ -125,3 +125,23 @@ pytest -q
 python scripts/smoke_hf_matrix.py --text-models gpt2,distilgpt2,facebook/opt-125m --multimodal-models Qwen/Qwen2-VL-2B --device cpu --dtype bfloat16
 python scripts/test_stage_matrix.py --text-models gpt2 --multimodal-models Qwen/Qwen2-VL-2B --device cpu --dtype bfloat16
 ```
+
+## PR5: New Model 5-Minute Onboarding
+
+### Scope
+- Freeze a repeatable onboarding contract for new text/VLM models.
+- Consolidate adapter template usage, registration steps, required commands, and acceptance thresholds.
+
+### Implemented
+- Added onboarding guide:
+  - `docs/docs/NEW_MODEL_ONBOARDING.md`
+- Strengthened adapter template documentation:
+  - `multimodal_lm_eap_ig/backend/adapters/_template.py`
+- Linked onboarding entry from package docs:
+  - `multimodal_lm_eap_ig/README.md`
+  - `docs/docs/SUPPORTED_MODELS.md`
+
+### Acceptance
+- New contributors can add an adapter with a fixed checklist.
+- Text-model onboarding has explicit strict parity thresholds.
+- VLM onboarding has explicit smoke + diagnostics requirements.

@@ -1,10 +1,29 @@
 """Template for adding a new HF architecture adapter.
 
-Usage:
-1. Copy this file and rename class/file to your architecture.
-2. Implement `match`, layer/module getters, and attention hook mapping.
-3. Register the adapter via `register_architecture_adapter`.
-4. Add unit tests similar to tests/test_backend_falcon_like.py.
+Five-minute onboarding checklist:
+1. Copy this file to `multimodal_lm_eap_ig/backend/adapters/<arch>_like.py`.
+2. Rename class and set:
+   - `name`
+   - `arch_kind`
+   - `layer_accessors`
+   - `required_attn_attrs`
+3. Implement:
+   - `match`
+   - `get_layers`
+   - `get_embed_module`
+   - `get_resid_module`
+   - `attn_result_module`
+   - `qkv_hook_modules`
+   - `projection_spec`
+4. Register the adapter:
+   - add export in `multimodal_lm_eap_ig/backend/adapters/__init__.py`
+   - include adapter class in `_default_adapter_classes()` inside
+     `multimodal_lm_eap_ig/backend/registry.py`
+5. Run required checks:
+   - `python scripts/inspect_adapter_registry.py --model-id <model_id>`
+   - `python scripts/smoke_hf_matrix.py --text-models <model_id> --multimodal-models ""`
+   - `ruff check multimodal_lm_eap_ig tests scripts`
+   - `pytest -q`
 """
 
 from __future__ import annotations
@@ -28,7 +47,7 @@ class TemplateArchitectureAdapter(BaseArchitectureAdapter):
     required_attn_attrs = ("<q_proj_like>", "<k_proj_like>", "<v_proj_like>", "<o_proj_like>")
 
     def match(self, backbone: torch.nn.Module) -> bool:
-        # Keep this strict: check both layer stack and one representative layer attr.
+        # Keep this strict: check layer stack + representative layer attrs.
         return False
 
     def get_layers(self, backbone: torch.nn.Module) -> Optional[Sequence[torch.nn.Module]]:
@@ -42,9 +61,11 @@ class TemplateArchitectureAdapter(BaseArchitectureAdapter):
         return layers[-1]
 
     def attn_result_module(self, attn_module: torch.nn.Module) -> torch.nn.Module:
+        # Return the module whose forward output corresponds to attention result.
         raise NotImplementedError
 
     def qkv_hook_modules(self, attn_module: torch.nn.Module) -> Dict[str, torch.nn.Module]:
+        # Return {"q": module, "k": module, "v": module}.
         raise NotImplementedError
 
     def projection_spec(self, attn_module: torch.nn.Module, qkv: str) -> ProjectionSpec:

@@ -238,3 +238,12 @@ When adding new model architecture support:
 2. register adapter in registry.
 3. validate hook scaffold via backend tests.
 4. run smoke and parity scripts.
+
+## PR5 Quick Onboarding
+
+For the standardized "new model in 5 minutes" path (adapter template, registration steps, must-run commands, acceptance thresholds), use:
+- `docs/docs/NEW_MODEL_ONBOARDING.md`
+
+This includes explicit instructions for:
+- adding new text models and validating strict parity,
+- adding new VLM models (LM trunk assumption) and validating smoke diagnostics.
