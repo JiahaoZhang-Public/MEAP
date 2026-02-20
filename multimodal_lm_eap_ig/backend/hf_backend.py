@@ -19,6 +19,7 @@ from .base import (
 )
 from .registry import (
     AdapterType,
+    ResolutionError,
     inspect_model_architecture,
     instantiate_adapters,
     resolve_adapter_resolution,
@@ -55,9 +56,14 @@ class HFLLMBackend:
         self._tokenizer = tokenizer
         self._strict_arch = strict_arch
         self._adapter_registry = instantiate_adapters(adapter_registry)
-        self._adapter, resolution = self._resolve_architecture(self.model, adapter_name=adapter_name)
+        self._adapter, resolution, diagnostics = self._resolve_architecture(
+            self.model,
+            adapter_name=adapter_name,
+        )
         self._base_model = resolution.base_model
+        self._backbone_path = resolution.path
         self._arch_kind = resolution.arch_kind
+        self._resolution_diagnostics = diagnostics
         self._layers = resolution.layers
         self._layer_accessors = resolution.layer_accessors
         self._embed_module = resolution.embed_module
@@ -88,6 +94,39 @@ class HFLLMBackend:
     @property
     def adapter_name(self) -> str:
         return self._adapter.name
+
+    @property
+    def backbone_path(self) -> str:
+        return self._backbone_path
+
+    @property
+    def arch_kind(self) -> str:
+        return self._arch_kind
+
+    @property
+    def resolution_diagnostics(self) -> Dict[str, Any]:
+        return dict(self._resolution_diagnostics)
+
+    def _diagnostics_summary(self, diagnostics: Dict[str, Any], *, max_items: int = 5) -> str:
+        selected = diagnostics.get("selected")
+        attempts = diagnostics.get("adapter_attempts", [])
+        parts: List[str] = []
+        if isinstance(selected, dict):
+            parts.append(
+                "selected="
+                f"{selected.get('adapter', '?')}@{selected.get('path', '?')}"
+            )
+        if attempts:
+            failed = [
+                f"{item.get('adapter', '?')}@{item.get('path', '?')}:{item.get('detail', '')}"
+                for item in attempts
+                if item.get("status") != "match"
+            ]
+            if failed:
+                parts.append("attempts=" + " | ".join(failed[:max_items]))
+        if not parts:
+            return "no adapter diagnostics available"
+        return "; ".join(parts)
 
     def _expand_projection_to_full_heads(
         self,
@@ -220,26 +259,27 @@ class HFLLMBackend:
         model: torch.nn.Module,
         *,
         adapter_name: Optional[str] = None,
-    ) -> Tuple[ArchitectureAdapter, AdapterResolution]:
+    ) -> Tuple[ArchitectureAdapter, AdapterResolution, Dict[str, Any]]:
         try:
-            adapter, resolved, _, _ = resolve_adapter_resolution(
+            adapter, resolved, diagnostics = resolve_adapter_resolution(
                 model,
                 self._adapter_registry,
                 adapter_name=adapter_name,
             )
-            return adapter, resolved
-        except ValueError as exc:
+            return adapter, resolved, diagnostics
+        except ResolutionError as exc:
             if self._strict_arch:
-                raise
+                summary = self._diagnostics_summary(exc.diagnostics)
+                raise ValueError(f"{exc} Resolution summary: {summary}") from exc
             diag = inspect_model_architecture(model, self._adapter_registry)
             selected = diag.get("selected")
             if selected is not None:
-                adapter, resolved, _, _ = resolve_adapter_resolution(
+                adapter, resolved, diagnostics = resolve_adapter_resolution(
                     model,
                     self._adapter_registry,
                     adapter_name=selected["adapter"],
                 )
-                return adapter, resolved
+                return adapter, resolved, diagnostics
             raise ValueError(f"{exc} Diagnostics: {diag.get('selection_error', 'no match')}") from exc
 
     def _normalize_config(self, model: torch.nn.Module) -> BackendConfig:

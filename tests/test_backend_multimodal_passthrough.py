@@ -140,6 +140,7 @@ def test_hf_backend_accepts_language_model_wrapper_and_multimodal_kwargs():
     model = TinyQwen2VLLikeModel()
     backend = HFLLMBackend(model)
 
+    assert backend.backbone_path == "model.language_model.model"
     assert backend.config.n_layers == 1
     assert backend.config.n_heads == 4
 
@@ -175,6 +176,7 @@ def test_hf_backend_accepts_language_model_wrapper_and_multimodal_kwargs():
 def test_hf_backend_supports_llava_style_model_language_path():
     model = TinyLlavaLikeWrapper()
     backend = HFLLMBackend(model)
+    assert backend.backbone_path == "model.model.language_model"
     assert backend.config.n_layers == 1
     assert backend.config.d_model == 16
     assert "hook_embed" in backend.supported_hook_names
@@ -183,6 +185,7 @@ def test_hf_backend_supports_llava_style_model_language_path():
 def test_hf_backend_supports_idefics_style_model_text_path():
     model = TinyIdeficsLikeWrapper()
     backend = HFLLMBackend(model)
+    assert backend.backbone_path == "model.model.text_model"
     assert backend.config.n_layers == 1
     assert backend.config.d_model == 16
     assert "hook_embed" in backend.supported_hook_names

@@ -56,6 +56,32 @@ def test_inspect_model_architecture_contains_selection():
     report = inspect_model_architecture(model)
 
     assert "candidate_backbones" in report
+    assert "adapters" in report
     assert isinstance(report["matches"], list)
+    assert isinstance(report["adapter_attempts"], list)
+    assert isinstance(report["errors"], list)
     assert report["selected"] is not None
     assert report["selected"]["adapter"] in {"llama_like", "priority_llama"}
+
+
+def test_inspect_model_architecture_match_schema_is_stable():
+    model = _tiny_llama()
+    report = inspect_model_architecture(model)
+    first = report["matches"][0]
+    assert set(first.keys()) >= {
+        "path",
+        "adapter",
+        "matched",
+        "required_modules",
+        "missing_modules",
+        "error",
+    }
+
+
+def test_hf_resolution_is_deterministic_for_same_model():
+    model = _tiny_llama()
+    backend_a = HFLLMBackend(model)
+    backend_b = HFLLMBackend(model)
+    assert backend_a.adapter_name == backend_b.adapter_name
+    assert backend_a.backbone_path == backend_b.backbone_path
+    assert backend_a.arch_kind == backend_b.arch_kind

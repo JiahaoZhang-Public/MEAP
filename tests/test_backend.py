@@ -61,6 +61,8 @@ def test_hf_backend_normalizes_llama_config_and_hook_scaffold():
     model = _tiny_llama_lm()
     backend = HFLLMBackend(model)
 
+    assert backend.backbone_path == "model.model"
+    assert backend.arch_kind == "llama_like"
     assert backend.config.n_layers == 1
     assert backend.config.n_heads == 4
     assert backend.config.n_key_value_heads == 2
@@ -84,6 +86,8 @@ def test_hf_backend_supports_gpt2_and_builds_hook_scaffold():
     )
     backend = HFLLMBackend(gpt2)
 
+    assert backend.backbone_path == "model.transformer"
+    assert backend.arch_kind == "gpt2_like"
     assert backend.config.n_layers == 1
     assert backend.config.n_heads == 2
     assert backend.config.d_model == 16
@@ -184,8 +188,9 @@ def test_hf_backend_rejects_non_decoder_backbone():
             self.proj = torch.nn.Linear(4, 4)
             self.config = type("Cfg", (), {"hidden_size": 4, "num_hidden_layers": 1, "num_attention_heads": 1})()
 
-    with pytest.raises(ValueError, match="Unsupported HF architecture"):
+    with pytest.raises(ValueError, match="Unsupported HF architecture") as exc_info:
         HFLLMBackend(DummyModel())
+    assert "Resolution summary" in str(exc_info.value)
 
 
 def test_hf_backend_reports_candidate_paths_for_invalid_decoder_shape():
@@ -210,8 +215,23 @@ def test_hf_backend_reports_candidate_paths_for_invalid_decoder_shape():
                 {"hidden_size": 4, "num_hidden_layers": 1, "num_attention_heads": 1},
             )()
 
-    with pytest.raises(ValueError, match="Tried backbones:"):
+    with pytest.raises(ValueError, match="Tried backbones:") as exc_info:
         HFLLMBackend(BadModel())
+    text = str(exc_info.value)
+    assert "missing attrs" in text or "missing required attrs" in text
+
+
+def test_hf_backend_exposes_resolution_diagnostics_schema():
+    model = _tiny_llama_lm()
+    backend = HFLLMBackend(model)
+
+    diagnostics = backend.resolution_diagnostics
+    assert "candidate_backbones" in diagnostics
+    assert "adapter_attempts" in diagnostics
+    assert "selected" in diagnostics
+    selected = diagnostics["selected"]
+    assert selected["adapter"] == backend.adapter_name
+    assert selected["path"] == backend.backbone_path
 
 
 def test_attribute_smoke_with_hf_backend_succeeds():

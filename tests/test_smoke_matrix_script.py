@@ -26,10 +26,13 @@ def test_run_matrix_schema_with_stubbed_model_runners(monkeypatch):
             model_id="gpt2",
             modality="text",
             adapter_name="gpt2_like",
+            backbone_path="model.transformer",
+            arch_kind="gpt2_like",
             status="pass",
             seconds=0.1,
             error_type="",
             error_message="",
+            resolution_error_hint="",
             graph_stats={"n_forward": 1, "n_backward": 1, "n_edges": 1, "score_shape_0": 1, "score_shape_1": 1},
         )
 
@@ -39,10 +42,13 @@ def test_run_matrix_schema_with_stubbed_model_runners(monkeypatch):
             model_id="Qwen/Qwen2-VL-2B",
             modality="multimodal",
             adapter_name="llama_like",
+            backbone_path="model.language_model.model",
+            arch_kind="llama_like",
             status="fail",
             seconds=0.2,
             error_type="runtime",
             error_message="boom",
+            resolution_error_hint="attempt=llama_like@model.model: missing ...",
             graph_stats=None,
         )
 
@@ -65,10 +71,13 @@ def test_run_matrix_schema_with_stubbed_model_runners(monkeypatch):
         "model_id",
         "modality",
         "adapter_name",
+        "backbone_path",
+        "arch_kind",
         "status",
         "seconds",
         "error_type",
         "error_message",
+        "resolution_error_hint",
         "graph_stats",
     }
 
@@ -81,10 +90,13 @@ def test_main_writes_report(monkeypatch, tmp_path):
                 "model_id": "gpt2",
                 "modality": "text",
                 "adapter_name": "gpt2_like",
+                "backbone_path": "model.transformer",
+                "arch_kind": "gpt2_like",
                 "status": "pass",
                 "seconds": 0.0,
                 "error_type": "",
                 "error_message": "",
+                "resolution_error_hint": "",
                 "graph_stats": {"n_forward": 1, "n_backward": 1, "n_edges": 1, "score_shape_0": 1, "score_shape_1": 1},
             }
         ],

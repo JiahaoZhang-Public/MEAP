@@ -14,6 +14,7 @@ from .base import (
 )
 from .hf_backend import HFLLMBackend
 from .registry import (
+    ResolutionError,
     get_registered_architecture_adapters,
     inspect_model_architecture,
     register_architecture_adapter,
@@ -48,6 +49,7 @@ __all__ = [
     "HFLLMBackend",
     "ModelBackend",
     "ProjectionSpec",
+    "ResolutionError",
     "TLensBackend",
     "get_registered_architecture_adapters",
     "inspect_model_architecture",

@@ -26,6 +26,7 @@ from multimodal_lm_eap_ig import (  # noqa: E402
     PreparedBatch,
     attribute,
     attribute_from_dataloader,
+    inspect_model_architecture,
 )
 from multimodal_lm_eap_ig.graph import Graph  # noqa: E402
 
@@ -48,10 +49,13 @@ class SmokeRow:
     model_id: str
     modality: str
     adapter_name: str
+    backbone_path: str
+    arch_kind: str
     status: str
     seconds: float
     error_type: str
     error_message: str
+    resolution_error_hint: str
     graph_stats: Optional[Dict[str, int]]
 
 
@@ -181,6 +185,7 @@ def run_text_smoke_model(
     token: Optional[str],
 ) -> SmokeRow:
     start = time.time()
+    model = None
     kwargs: Dict[str, Any] = {}
     if token:
         kwargs["token"] = token
@@ -211,10 +216,13 @@ def run_text_smoke_model(
             model_id=model_id,
             modality="text",
             adapter_name=backend.adapter_name,
+            backbone_path=backend.backbone_path,
+            arch_kind=backend.arch_kind,
             status="pass",
             seconds=time.time() - start,
             error_type="",
             error_message="",
+            resolution_error_hint="",
             graph_stats={
                 "n_forward": graph.n_forward,
                 "n_backward": graph.n_backward,
@@ -224,14 +232,34 @@ def run_text_smoke_model(
             },
         )
     except Exception as exc:
+        hint = ""
+        if model is not None and "unsupported hf architecture" in str(exc).lower():
+            try:
+                diag = inspect_model_architecture(model)
+                selected = diag.get("selected")
+                if selected:
+                    hint = f"selected={selected.get('adapter')}@{selected.get('path')}"
+                else:
+                    attempts = diag.get("adapter_attempts", [])
+                    if attempts:
+                        top = attempts[0]
+                        hint = (
+                            f"attempt={top.get('adapter')}@{top.get('path')}: "
+                            f"{top.get('detail', '')}"
+                        )
+            except Exception:
+                hint = ""
         return SmokeRow(
             model_id=model_id,
             modality="text",
             adapter_name="",
+            backbone_path="",
+            arch_kind="",
             status="fail",
             seconds=time.time() - start,
             error_type=classify_error(exc),
             error_message=str(exc),
+            resolution_error_hint=hint,
             graph_stats=None,
         )
 
@@ -244,6 +272,7 @@ def run_multimodal_smoke_model(
     token: Optional[str],
 ) -> SmokeRow:
     start = time.time()
+    model = None
     kwargs: Dict[str, Any] = {"trust_remote_code": True}
     if token:
         kwargs["token"] = token
@@ -282,10 +311,13 @@ def run_multimodal_smoke_model(
             model_id=model_id,
             modality="multimodal",
             adapter_name=backend.adapter_name,
+            backbone_path=backend.backbone_path,
+            arch_kind=backend.arch_kind,
             status="pass",
             seconds=time.time() - start,
             error_type="",
             error_message="",
+            resolution_error_hint="",
             graph_stats={
                 "n_forward": graph.n_forward,
                 "n_backward": graph.n_backward,
@@ -295,14 +327,34 @@ def run_multimodal_smoke_model(
             },
         )
     except Exception as exc:
+        hint = ""
+        if model is not None and "unsupported hf architecture" in str(exc).lower():
+            try:
+                diag = inspect_model_architecture(model)
+                selected = diag.get("selected")
+                if selected:
+                    hint = f"selected={selected.get('adapter')}@{selected.get('path')}"
+                else:
+                    attempts = diag.get("adapter_attempts", [])
+                    if attempts:
+                        top = attempts[0]
+                        hint = (
+                            f"attempt={top.get('adapter')}@{top.get('path')}: "
+                            f"{top.get('detail', '')}"
+                        )
+            except Exception:
+                hint = ""
         return SmokeRow(
             model_id=model_id,
             modality="multimodal",
             adapter_name="",
+            backbone_path="",
+            arch_kind="",
             status="fail",
             seconds=time.time() - start,
             error_type=classify_error(exc),
             error_message=str(exc),
+            resolution_error_hint=hint,
             graph_stats=None,
         )
 

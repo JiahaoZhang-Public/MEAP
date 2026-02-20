@@ -42,15 +42,42 @@ def main() -> None:
     report = inspect_model_architecture(model)
     try:
         backend = HFLLMBackend(model, strict_arch=True)
+        attempts = backend.resolution_diagnostics.get("adapter_attempts", [])
+        failed_attempts = [
+            {
+                "adapter": item.get("adapter"),
+                "path": item.get("path"),
+                "status": item.get("status"),
+                "detail": item.get("detail"),
+                "missing_modules": item.get("missing_modules", []),
+            }
+            for item in attempts
+            if item.get("status") != "match"
+        ]
         report["backend_init"] = {
             "status": "ok",
             "adapter_name": backend.adapter_name,
+            "backbone_path": backend.backbone_path,
+            "arch_kind": backend.arch_kind,
             "n_layers": backend.config.n_layers,
             "n_heads": backend.config.n_heads,
             "d_model": backend.config.d_model,
+            "resolution_summary": {
+                "selected": backend.resolution_diagnostics.get("selected"),
+                "failed_attempts": failed_attempts[:5],
+            },
         }
     except Exception as exc:
-        report["backend_init"] = {"status": "error", "message": str(exc)}
+        report["backend_init"] = {
+            "status": "error",
+            "message": str(exc),
+            "backbone_path": "",
+            "arch_kind": "",
+            "resolution_summary": {
+                "selected": report.get("selected"),
+                "failed_attempts": report.get("adapter_attempts", [])[:5],
+            },
+        }
 
     text = json.dumps(report, ensure_ascii=False, indent=2)
     print(text)
