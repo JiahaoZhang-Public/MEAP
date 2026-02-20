@@ -1,4 +1,4 @@
-"""Public package interface for mm-eap.
+"""Public package interface for meap.
 
 Stability policy:
 - Symbols exported here are the supported package surface.
@@ -81,7 +81,7 @@ _REMOVAL_VERSION = "1.2.0"
 def _warn_deprecated_public_symbol(symbol: str, replacement: str) -> None:
     warnings.warn(
         (
-            f"`multimodal_lm_eap_ig.{symbol}` is deprecated since {_DEPRECATION_VERSION} "
+            f"`meap.{symbol}` is deprecated since {_DEPRECATION_VERSION} "
             f"and will be removed in {_REMOVAL_VERSION}. "
             f"Use `{replacement}` instead."
         ),
@@ -91,54 +91,54 @@ def _warn_deprecated_public_symbol(symbol: str, replacement: str) -> None:
 
 
 def get_real_edge_scores(*args: Any, **kwargs: Any):
-    _warn_deprecated_public_symbol("get_real_edge_scores", "multimodal_lm_eap_ig.attribute.get_real_edge_scores")
+    _warn_deprecated_public_symbol("get_real_edge_scores", "meap.attribute.get_real_edge_scores")
     return _get_real_edge_scores(*args, **kwargs)
 
 
 def get_scores_clean_corrupted(*args: Any, **kwargs: Any):
     _warn_deprecated_public_symbol(
-        "get_scores_clean_corrupted", "multimodal_lm_eap_ig.attribute.get_scores_clean_corrupted"
+        "get_scores_clean_corrupted", "meap.attribute.get_scores_clean_corrupted"
     )
     return _get_scores_clean_corrupted(*args, **kwargs)
 
 
 def get_scores_eap(*args: Any, **kwargs: Any):
-    _warn_deprecated_public_symbol("get_scores_eap", "multimodal_lm_eap_ig.attribute.get_scores_eap")
+    _warn_deprecated_public_symbol("get_scores_eap", "meap.attribute.get_scores_eap")
     return _get_scores_eap(*args, **kwargs)
 
 
 def get_scores_eap_ig(*args: Any, **kwargs: Any):
-    _warn_deprecated_public_symbol("get_scores_eap_ig", "multimodal_lm_eap_ig.attribute.get_scores_eap_ig")
+    _warn_deprecated_public_symbol("get_scores_eap_ig", "meap.attribute.get_scores_eap_ig")
     return _get_scores_eap_ig(*args, **kwargs)
 
 
 def get_scores_exact(*args: Any, **kwargs: Any):
-    _warn_deprecated_public_symbol("get_scores_exact", "multimodal_lm_eap_ig.attribute.get_scores_exact")
+    _warn_deprecated_public_symbol("get_scores_exact", "meap.attribute.get_scores_exact")
     return _get_scores_exact(*args, **kwargs)
 
 
 def get_scores_ig_activations(*args: Any, **kwargs: Any):
     _warn_deprecated_public_symbol(
-        "get_scores_ig_activations", "multimodal_lm_eap_ig.attribute.get_scores_ig_activations"
+        "get_scores_ig_activations", "meap.attribute.get_scores_ig_activations"
     )
     return _get_scores_ig_activations(*args, **kwargs)
 
 
 def get_scores_smoke(*args: Any, **kwargs: Any):
-    _warn_deprecated_public_symbol("get_scores_smoke", "multimodal_lm_eap_ig.attribute.get_scores_smoke")
+    _warn_deprecated_public_symbol("get_scores_smoke", "meap.attribute.get_scores_smoke")
     return _get_scores_smoke(*args, **kwargs)
 
 
 def build_default_llava_processor(*args: Any, **kwargs: Any):
     _warn_deprecated_public_symbol(
-        "build_default_llava_processor", "multimodal_lm_eap_ig.preparer.build_default_llava_processor"
+        "build_default_llava_processor", "meap.preparer.build_default_llava_processor"
     )
     return _build_default_llava_processor(*args, **kwargs)
 
 
 def prepare_llava_token_pair_batch(*args: Any, **kwargs: Any):
     _warn_deprecated_public_symbol(
-        "prepare_llava_token_pair_batch", "multimodal_lm_eap_ig.preparer.prepare_llava_token_pair_batch"
+        "prepare_llava_token_pair_batch", "meap.preparer.prepare_llava_token_pair_batch"
     )
     return _prepare_llava_token_pair_batch(*args, **kwargs)
 

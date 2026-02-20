@@ -23,7 +23,7 @@ import torch
 from transformer_lens import HookedTransformer
 from transformers import AutoConfig, AutoModelForCausalLM, AutoProcessor
 
-from multimodal_lm_eap_ig import (
+from meap import (
     DEFAULT_BACKBONE_MODEL_ID,
     DEFAULT_MULTIMODAL_MODEL_ID,
     Graph,

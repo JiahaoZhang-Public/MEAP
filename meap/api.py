@@ -1,4 +1,4 @@
-"""Stable high-level API surface for mm-eap.
+"""Stable high-level API surface for meap.
 
 Use this module for production usage. Lower-level implementation modules are internal.
 """

@@ -41,10 +41,10 @@ try:
 except Exception as exc:  # noqa: BLE001
     _VENDOR_IMPORT_ERROR = exc
 
-from multimodal_lm_eap_ig.attribute import attribute as ours_attribute  # noqa: E402
-from multimodal_lm_eap_ig.backend import HFLLMBackend, TLensBackend  # noqa: E402
-from multimodal_lm_eap_ig.batch import PreparedBatch, text_batch_to_prepared_batch  # noqa: E402
-from multimodal_lm_eap_ig.graph import Graph as OursGraph  # noqa: E402
+from meap.attribute import attribute as ours_attribute  # noqa: E402
+from meap.backend import HFLLMBackend, TLensBackend  # noqa: E402
+from meap.batch import PreparedBatch, text_batch_to_prepared_batch  # noqa: E402
+from meap.graph import Graph as OursGraph  # noqa: E402
 
 DEFAULT_METHODS = [
     "EAP",
@@ -93,7 +93,7 @@ def ensure_vendor_available() -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Parity test between vendor EAP-IG and multimodal_lm_eap_ig on text models. "
+            "Parity test between vendor EAP-IG and meap on text models. "
             "Runs vendor, ours+TLens backend, and ours+HF backend on the same batches."
         )
     )

@@ -1,4 +1,4 @@
-# multimodal_lm_eap_ig Package Guide
+# meap Package Guide
 
 This package implements attribution methods (EAP / EAP-IG variants / exact / smoke) on top of model backends, with a focus on Hugging Face models and language-trunk attribution for multimodal systems.
 
@@ -14,7 +14,7 @@ This package then added backend abstraction, HF-first runtime, multimodal input 
 Runtime install:
 
 ```bash
-pip install mm-eap
+pip install meap
 ```
 
 Development install:
@@ -27,7 +27,7 @@ pip install -e ".[dev,multimodal,viz,docs]"
 
 Use these as stable entrypoints:
 
-- High-level API (`multimodal_lm_eap_ig.api`):
+- High-level API (`meap.api`):
   - `AttributionRunResult`
   - `attribute_from_dataloader`
   - `evaluate_graph_from_dataloader`
@@ -40,9 +40,9 @@ Use these as stable entrypoints:
   - `register_architecture_adapter`, `inspect_model_architecture`, `resolve_backend`
 
 Internal (not stability-guaranteed) modules:
-- `multimodal_lm_eap_ig.attribute`
-- `multimodal_lm_eap_ig.evaluate`
-- `multimodal_lm_eap_ig.utils`
+- `meap.attribute`
+- `meap.evaluate`
+- `meap.utils`
 
 ### Deprecated Top-Level Symbols
 
@@ -59,8 +59,8 @@ Deprecated since `1.0.0`, planned removal in `1.2.0` from package top-level:
 - `prepare_llava_token_pair_batch`
 
 Migration:
-- Import these from their implementation modules (`multimodal_lm_eap_ig.attribute` / `multimodal_lm_eap_ig.preparer`) if needed.
-- Prefer high-level APIs in `multimodal_lm_eap_ig.api` for long-term compatibility.
+- Import these from their implementation modules (`meap.attribute` / `meap.preparer`) if needed.
+- Prefer high-level APIs in `meap.api` for long-term compatibility.
 
 ## Design Goal
 
@@ -180,7 +180,7 @@ the per-batch step normalization behavior from upstream `vendor/eap-ig`.
 ### A) Prebuilt `PreparedBatch`
 
 ```python
-from multimodal_lm_eap_ig import attribute_from_dataloader, HFLLMBackend
+from meap import attribute_from_dataloader, HFLLMBackend
 
 backend = HFLLMBackend(model)
 result = attribute_from_dataloader(
@@ -195,7 +195,7 @@ result = attribute_from_dataloader(
 ### B) Raw clean/corrupt with explicit processor
 
 ```python
-from multimodal_lm_eap_ig import attribute_from_dataloader, HFLLMBackend
+from meap import attribute_from_dataloader, HFLLMBackend
 
 backend = HFLLMBackend(model, tokenizer=getattr(processor, "tokenizer", None))
 result = attribute_from_dataloader(

@@ -3,10 +3,10 @@ from types import SimpleNamespace
 
 import torch
 
-from multimodal_lm_eap_ig.backend.base import BackendConfig, BackendRunInputs
-from multimodal_lm_eap_ig.batch import PreparedBatch
+from meap.backend.base import BackendConfig, BackendRunInputs
+from meap.batch import PreparedBatch
 
-attribute_module = importlib.import_module("multimodal_lm_eap_ig.attribute")
+attribute_module = importlib.import_module("meap.attribute")
 
 
 class _DummyNode:

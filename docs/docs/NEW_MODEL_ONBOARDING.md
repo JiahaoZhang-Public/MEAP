@@ -22,12 +22,12 @@ Use one of the two paths:
 ## 2) Add a New Adapter
 
 Template file:
-- `multimodal_lm_eap_ig/backend/adapters/_template.py`
+- `meap/backend/adapters/_template.py`
 
 Steps:
 
 1. Create adapter file:
-- `multimodal_lm_eap_ig/backend/adapters/<arch>_like.py`
+- `meap/backend/adapters/<arch>_like.py`
 
 2. Implement required methods:
 - `match(backbone)`
@@ -39,8 +39,8 @@ Steps:
 - `projection_spec(attn_module, qkv)`
 
 3. Register adapter:
-- Export adapter in `multimodal_lm_eap_ig/backend/adapters/__init__.py`
-- Add class to `_default_adapter_classes()` in `multimodal_lm_eap_ig/backend/registry.py`
+- Export adapter in `meap/backend/adapters/__init__.py`
+- Add class to `_default_adapter_classes()` in `meap/backend/registry.py`
 
 4. Add tests:
 - Adapter registry test: `tests/test_adapter_registry.py`
@@ -86,7 +86,7 @@ python scripts/test_text_vendor_parity.py \
 ### D. Repo quality gates
 
 ```bash
-ruff check multimodal_lm_eap_ig tests scripts
+ruff check meap tests scripts
 pytest -q
 ```
 

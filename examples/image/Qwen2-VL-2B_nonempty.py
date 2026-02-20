@@ -36,8 +36,8 @@ from examples.common import (  # noqa: E402
     write_model_input_summary,
     write_run_summary,
 )
-from multimodal_lm_eap_ig import HFLLMBackend, PreparedBatch, attribute_from_dataloader  # noqa: E402
-from multimodal_lm_eap_ig.batch import validate_prepared_batch  # noqa: E402
+from meap import HFLLMBackend, PreparedBatch, attribute_from_dataloader  # noqa: E402
+from meap.batch import validate_prepared_batch  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:

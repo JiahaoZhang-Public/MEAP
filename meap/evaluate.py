@@ -1,7 +1,7 @@
 """Internal graph evaluation primitives.
 
 This module is low-level and not guaranteed stable across minor releases.
-Use high-level APIs from `multimodal_lm_eap_ig.api` when possible.
+Use high-level APIs from `meap.api` when possible.
 """
 
 from __future__ import annotations

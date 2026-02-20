@@ -25,12 +25,12 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from multimodal_lm_eap_ig import (  # noqa: E402
+from meap import (  # noqa: E402
     HFLLMBackend,
     PreparedBatch,
     attribute_from_dataloader,
 )
-from multimodal_lm_eap_ig.batch import PairBatchPreparer, validate_prepared_batch  # noqa: E402
+from meap.batch import PairBatchPreparer, validate_prepared_batch  # noqa: E402
 
 DEFAULT_AUDIO_PROMPT = "Generate the caption in English:"
 DEFAULT_AUDIO_URL = "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-Audio/glass-breaking-151256.mp3"

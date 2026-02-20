@@ -1,13 +1,13 @@
 # Compatibility Matrix
 
-This page fixes the compatibility contract for `mm-eap` v1 PR4.
+This page fixes the compatibility contract for `meap` v1 PR4.
 
 ## Installation Modes
 
 - Development (recommended for contributors):
   - `pip install -e ".[dev,multimodal,viz,docs]"`
 - Release install (post `v1.0.0`):
-  - `pip install mm-eap`
+  - `pip install meap`
 
 ## Runtime Compatibility
 

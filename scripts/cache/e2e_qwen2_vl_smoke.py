@@ -17,7 +17,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from multimodal_lm_eap_ig import HFLLMBackend, attribute_from_dataloader  # noqa: E402
+from meap import HFLLMBackend, attribute_from_dataloader  # noqa: E402
 
 
 @dataclass

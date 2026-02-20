@@ -3,8 +3,8 @@ requires = ["flit_core >=3.2,<4"]
 build-backend = "flit_core.buildapi"
 
 [project]
-name = "mm-eap"
-version = "1.0.0.dev1"
+name = "meap"
+version = "1.1.0"
 description = "Multimodal Edge Attribution Patching (EAP-family) for language-model backbones"
 authors = [
   { name = "Jiahao Zhang" }
@@ -13,7 +13,7 @@ maintainers = [
   { name = "Jiahao Zhang" }
 ]
 license = { file = "LICENSE" }
-readme = "multimodal_lm_eap_ig/README.md"
+readme = "meap/README.md"
 keywords = ["attribution", "mechanistic-interpretability", "multimodal", "transformers", "eap"]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -57,25 +57,25 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/JiahaoZhang-Public/Multimodal-LM-EAP-IG"
-Repository = "https://github.com/JiahaoZhang-Public/Multimodal-LM-EAP-IG"
-Issues = "https://github.com/JiahaoZhang-Public/Multimodal-LM-EAP-IG/issues"
-Documentation = "https://github.com/JiahaoZhang-Public/Multimodal-LM-EAP-IG/tree/main/docs"
+Homepage = "https://github.com/JiahaoZhang-Public/MEAP"
+Repository = "https://github.com/JiahaoZhang-Public/MEAP"
+Issues = "https://github.com/JiahaoZhang-Public/MEAP/issues"
+Documentation = "https://github.com/JiahaoZhang-Public/MEAP/tree/main/docs"
 
 [tool.flit.module]
-name = "multimodal_lm_eap_ig"
+name = "meap"
 
 
 [tool.ruff]
 line-length = 99
-src = ["multimodal_lm_eap_ig", "scripts", "tests"]
-include = ["pyproject.toml", "multimodal_lm_eap_ig/**/*.py", "scripts/**/*.py", "tests/**/*.py"]
+src = ["meap", "scripts", "tests"]
+include = ["pyproject.toml", "meap/**/*.py", "scripts/**/*.py", "tests/**/*.py"]
 
 [tool.ruff.lint]
 extend-select = ["I"]  # Add import sorting
 
 [tool.ruff.lint.isort]
-known-first-party = ["multimodal_lm_eap_ig"]
+known-first-party = ["meap"]
 force-sort-within-sections = true
 
 [tool.mypy]
@@ -87,7 +87,7 @@ warn_redundant_casts = true
 check_untyped_defs = true
 no_implicit_optional = true
 files = [
-    "multimodal_lm_eap_ig/__init__.py",
-    "multimodal_lm_eap_ig/api.py",
-    "multimodal_lm_eap_ig/backend/__init__.py",
+    "meap/__init__.py",
+    "meap/api.py",
+    "meap/backend/__init__.py",
 ]

@@ -1,4 +1,4 @@
-from multimodal_lm_eap_ig.backend.adapters._template import TemplateArchitectureAdapter
+from meap.backend.adapters._template import TemplateArchitectureAdapter
 
 
 def test_template_adapter_contract_surface():

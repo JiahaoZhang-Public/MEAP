@@ -72,16 +72,16 @@ python scripts/inspect_adapter_registry.py \
 
 ## Add New Adapter (5 Minutes)
 
-1. Copy template: `multimodal_lm_eap_ig/backend/adapters/_template.py`.
+1. Copy template: `meap/backend/adapters/_template.py`.
 2. Implement `match`, layer accessors, attention projection mapping, and `projection_spec`.
-3. Register adapter in `multimodal_lm_eap_ig/backend/registry.py` default adapter list (or call `register_architecture_adapter`).
+3. Register adapter in `meap/backend/registry.py` default adapter list (or call `register_architecture_adapter`).
 4. Add tests:
 - adapter registry selection test (`tests/test_adapter_registry.py`)
 - backend smoke test for the new architecture (`tests/test_backend_<arch>.py`)
 5. Run:
 
 ```bash
-ruff check multimodal_lm_eap_ig tests scripts
+ruff check meap tests scripts
 pytest -q
 python scripts/smoke_hf_matrix.py --text-models <new-model-id> --multimodal-models \"\" --device cpu --dtype float32
 ```

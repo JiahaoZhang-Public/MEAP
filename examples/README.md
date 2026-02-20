@@ -1,6 +1,6 @@
 # Examples
 
-Per-modality end-to-end attribution examples using `mm-eap`.
+Per-modality end-to-end attribution examples using `meap`.
 
 Each example script follows the same 3-stage flow:
 1. Raw data -> processing -> model input tensors (`PreparedBatch`)

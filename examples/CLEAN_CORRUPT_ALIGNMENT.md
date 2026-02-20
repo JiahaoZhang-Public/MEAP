@@ -1,6 +1,6 @@
 # Clean/Corrupt Alignment Guide
 
-This document explains how to build clean/corrupt sample pairs that are valid for attribution in `mm-eap`.
+This document explains how to build clean/corrupt sample pairs that are valid for attribution in `meap`.
 
 If clean/corrupt are not aligned, common failures include:
 - `attention_mask semantics must match between clean and corrupt`

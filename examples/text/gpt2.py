@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Text attribution example for GPT-2.
 
-This example shows the full workflow with mm-eap:
+This example shows the full workflow with meap:
 1. Raw data -> tokenization -> model inputs (PreparedBatch)
 2. Attribution with EAP-family methods (default EAP)
 3. Graph visualization export (JSON + PNG)
@@ -38,8 +38,8 @@ from examples.common import (  # noqa: E402
     write_model_input_summary,
     write_run_summary,
 )
-from multimodal_lm_eap_ig import HFLLMBackend, PreparedBatch, attribute_from_dataloader  # noqa: E402
-from multimodal_lm_eap_ig.batch import validate_prepared_batch  # noqa: E402
+from meap import HFLLMBackend, PreparedBatch, attribute_from_dataloader  # noqa: E402
+from meap.batch import validate_prepared_batch  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:

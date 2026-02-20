@@ -1,6 +1,6 @@
 # Governance
 
-This document defines contribution and release governance for `mm-eap`.
+This document defines contribution and release governance for `meap`.
 
 ## Goals
 
@@ -25,7 +25,7 @@ Every PR should include:
 Required before merge:
 
 ```bash
-ruff check multimodal_lm_eap_ig tests scripts
+ruff check meap tests scripts
 pytest -q
 mypy
 ```

@@ -2,11 +2,11 @@ import importlib
 
 import pytest
 
-import multimodal_lm_eap_ig as pkg
+import meap as pkg
 
-attribute_module = importlib.import_module("multimodal_lm_eap_ig.attribute")
-evaluate_module = importlib.import_module("multimodal_lm_eap_ig.evaluate")
-utils_module = importlib.import_module("multimodal_lm_eap_ig.utils")
+attribute_module = importlib.import_module("meap.attribute")
+evaluate_module = importlib.import_module("meap.evaluate")
+utils_module = importlib.import_module("meap.utils")
 
 
 def test_stable_public_api_symbols_are_exported():

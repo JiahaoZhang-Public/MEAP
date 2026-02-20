@@ -1,7 +1,7 @@
 """Internal attribution method implementations.
 
 This module is intentionally low-level and may change between minor versions.
-Prefer `multimodal_lm_eap_ig.api` and package-level public APIs for stable usage.
+Prefer `meap.api` and package-level public APIs for stable usage.
 """
 
 from __future__ import annotations

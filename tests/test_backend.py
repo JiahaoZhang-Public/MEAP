@@ -9,10 +9,10 @@ from transformers import (
     OPTForCausalLM,
 )
 
-from multimodal_lm_eap_ig.attribute import attribute
-from multimodal_lm_eap_ig.backend import HFLLMBackend
-from multimodal_lm_eap_ig.batch import PreparedBatch
-from multimodal_lm_eap_ig.graph import Graph
+from meap.attribute import attribute
+from meap.backend import HFLLMBackend
+from meap.batch import PreparedBatch
+from meap.graph import Graph
 
 
 def _tiny_llama_lm() -> LlamaForCausalLM:

@@ -17,11 +17,11 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from multimodal_lm_eap_ig.attribute import attribute  # noqa: E402
-from multimodal_lm_eap_ig.backend import HFLLMBackend, TLensBackend  # noqa: E402
-from multimodal_lm_eap_ig.batch import PreparedBatch, text_batch_to_prepared_batch  # noqa: E402
-from multimodal_lm_eap_ig.graph import Graph  # noqa: E402
-from multimodal_lm_eap_ig.utils import forward_with_hooks, resolve_run_inputs  # noqa: E402
+from meap.attribute import attribute  # noqa: E402
+from meap.backend import HFLLMBackend, TLensBackend  # noqa: E402
+from meap.batch import PreparedBatch, text_batch_to_prepared_batch  # noqa: E402
+from meap.graph import Graph  # noqa: E402
+from meap.utils import forward_with_hooks, resolve_run_inputs  # noqa: E402
 
 DEFAULT_METHODS = [
     "smoke",

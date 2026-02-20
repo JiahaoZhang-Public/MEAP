@@ -1,6 +1,6 @@
-# mm-eap Documentation
+# meap Documentation
 
-Welcome to `mm-eap` (Multimodal Edge Attribution Patching).
+Welcome to `meap` (Multimodal Edge Attribution Patching).
 
 This documentation is organized by **what a new user should read first**.
 
