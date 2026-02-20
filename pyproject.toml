@@ -42,6 +42,7 @@ multimodal = [
 ]
 viz = [
     "matplotlib>=3.8",
+    "pygraphviz>=1.11",
 ]
 docs = [
     "mkdocs>=1.5",

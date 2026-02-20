@@ -41,6 +41,26 @@ python scripts/smoke_hf_matrix.py --text-models gpt2 --multimodal-models Qwen/Qw
 - Purpose: release engineering utility (gate/build/check/notes/tag).
 - See `scripts/release/README.md` for command usage.
 
+7. `scripts/real_attribution_modalities.py`
+- Purpose: run real attribution experiments for `text`, `image`, and `audio` and export graph artifacts.
+- Exports per modality:
+  - `<modality>_graph_full.json`
+  - `<modality>_graph_topn.json`
+  - `<modality>_graph_topn.png`
+  - `<modality>_summary.json`
+- Exports unified report:
+  - `real_attribution_modalities.json`
+- Typical use:
+```bash
+python scripts/real_attribution_modalities.py \
+  --modalities text,image,audio \
+  --method EAP \
+  --device cpu \
+  --dtype float32 \
+  --topn 200 \
+  --output-dir reports/real_attribution
+```
+
 ## Archived Scripts
 
 Archived scripts are kept for historical/debug reference and are not part of the current recommended workflow:

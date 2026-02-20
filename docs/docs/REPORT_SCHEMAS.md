@@ -50,3 +50,20 @@ Top-level keys:
 - `all_passed`
 
 These schemas are consumed by tests and should only change with an explicit schema version bump.
+
+## 4) `real_attribution_modalities.py`
+
+Top-level keys:
+- `report_type` = `"real_attribution_modalities"`
+- `schema_version` = `"1.0.0"`
+- `generated_at_utc`
+- `config`
+- `all_passed`
+- `results`
+
+Per-result keys:
+- `modality`, `model_id`, `method`
+- `status`, `seconds`
+- `error_type`, `error_message`
+- `graph_stats` (`null` on failure)
+- `artifacts` (paths to graph JSON/PNG and modality summary JSON)

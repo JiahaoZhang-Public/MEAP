@@ -151,6 +151,21 @@ python scripts/api_minimal_examples.py \
   --dtype float32
 ```
 
+## Real Attribution + Graph Visualization
+
+Run one command to execute real attribution experiments for text/image/audio and export graph
+artifacts (`full.json`, `topn.json`, `topn.png`) per modality:
+
+```bash
+python scripts/real_attribution_modalities.py \
+  --modalities text,image,audio \
+  --method EAP \
+  --device cpu \
+  --dtype float32 \
+  --topn 200 \
+  --output-dir reports/real_attribution
+```
+
 ## Supported Methods
 
 - `smoke`
