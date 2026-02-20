@@ -168,9 +168,9 @@ Active docs:
 - Supported models: `docs/docs/SUPPORTED_MODELS.md`
 - New model onboarding (5 min): `docs/docs/NEW_MODEL_ONBOARDING.md`
 
-Historical/roadmap docs:
-- Staged implementation history: `docs/docs/STAGED_IMPLEMENTATION.md`
-- Early refactor design context: `docs/docs/REFACTOR_DESIGN.md`
+Archived historical docs (cache):
+- Staged implementation history: `docs/cache/STAGED_IMPLEMENTATION.md`
+- Early refactor design context: `docs/cache/REFACTOR_DESIGN.md`
 
 ## Development
 

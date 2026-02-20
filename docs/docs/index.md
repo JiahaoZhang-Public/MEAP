@@ -24,10 +24,8 @@ Active documents:
 - `API_STABILITY.md`
 - `SUPPORTED_MODELS.md`
 - `NEW_MODEL_ONBOARDING.md`
-
-Historical context documents:
-- `STAGED_IMPLEMENTATION.md` (phase-by-phase delivery history)
-- `REFACTOR_DESIGN.md` (early architecture rationale)
-
-Project process:
 - `governance.md`
+
+Archived documents (cache):
+- `docs/cache/STAGED_IMPLEMENTATION.md`
+- `docs/cache/REFACTOR_DESIGN.md`

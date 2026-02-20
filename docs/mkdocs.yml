@@ -6,6 +6,4 @@ nav:
   - API Stability: API_STABILITY.md
   - Supported Models: SUPPORTED_MODELS.md
   - New Model Onboarding: NEW_MODEL_ONBOARDING.md
-  - Staged Implementation (History): STAGED_IMPLEMENTATION.md
-  - Refactor Design (History): REFACTOR_DESIGN.md
   - Governance: governance.md
