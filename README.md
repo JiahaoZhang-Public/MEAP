@@ -14,10 +14,10 @@ Import path:
 import meap
 ```
 
-PyPI package name:
+TestPyPI package name:
 
 ```bash
-pip install meap
+pip install -i https://test.pypi.org/simple/ meap
 ```
 
 ## Quick Start (10 Minutes)
