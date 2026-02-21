@@ -1,52 +1,79 @@
-# API Stability (v1)
+# API Stability (v1.4.0)
 
-This page defines the supported package surface for `meap` v1.
+This page is the normative stability contract for `meap` public APIs.
 
-## Stable Public API
+If a statement here conflicts with other docs, treat this page as the source of truth.
 
-Primary module:
+## Stable Entry Points
+
+Primary stable modules:
+- `meap`
 - `meap.api`
 
-Stable symbols:
-- `AttributionRunResult`
-- `attribute_from_dataloader`
-- `evaluate_graph_from_dataloader`
-- `evaluate_baseline_from_dataloader`
+Primary stable class:
+- `AttributionModel`
 
-Stable package-level objects:
-- `HFLLMBackend`, `TLensBackend`
-- `PreparedBatch`, `RawPairBatch`, `DictPairBatch`
-- `HFProcessorAdapter`
-- `Graph`
-- `register_architecture_adapter`, `inspect_model_architecture`, `resolve_backend`
+Stable core symbols:
+- `AttributionModel`
+- `AttributionResult`
+- `RouteInfo`
+- `PreparedInputLike`
+- `TaskSpec`
+
+Stable dataloader evaluation APIs:
+- `evaluate_graph_from_dataloader(...)`
+- `evaluate_baseline_from_dataloader(...)`
+
+## Core Contract (AttributionModel)
+
+Canonical path:
+1. `model -> language trunk/graph`
+2. `prepared inputs -> attribution`
+
+`AttributionModel` core methods accept:
+- `PreparedBatch`, or
+- nested prepared mapping with:
+  - `clean_inputs`
+  - `corrupt_inputs`
+  - optional `labels`, `input_lengths`, `meta`
+
+`AttributionModel` core methods do **not** accept:
+- `clean_samples`
+- `corrupt_samples`
+- `pair_batch_preparer`
+- `RawPairBatch`
+
+## Dataloader Evaluation Contract
+
+The dataloader wrappers support evaluation-oriented workflows:
+- `evaluate_graph_from_dataloader(...)`
+- `evaluate_baseline_from_dataloader(...)`
+
+For these wrappers:
+- accepted dataloader entries: `PreparedBatch`, `RawPairBatch`
+- use `pair_batch_preparer=...` when raw pairs are provided
+
+## HF Route Resolution Contract
+
+Stable route concepts:
+- `language_trunk_path`: selected language-model trunk path inside the HF model
+- `adapter_name`: architecture adapter used on that trunk
+
+Stable diagnostics keys in `RouteInfo.diagnostics`:
+- `selected`
+- `candidate_backbones`
+- `adapter_attempts`
+- `selection_error`
 
 ## Internal Modules (Not Stability-Guaranteed)
 
-The following modules are implementation detail APIs and may change in minor releases:
-
+The following modules are implementation details and may change in minor releases:
 - `meap.attribute`
 - `meap.evaluate`
 - `meap.utils`
 
-## Deprecation Policy
+## Version History References
 
-Deprecated top-level symbols emit `DeprecationWarning`.
-
-Current deprecations:
-- Deprecated since: `1.0.0`
-- Planned top-level removal: `1.2.0`
-
-Symbols:
-- `get_real_edge_scores`
-- `get_scores_clean_corrupted`
-- `get_scores_eap`
-- `get_scores_eap_ig`
-- `get_scores_exact`
-- `get_scores_ig_activations`
-- `get_scores_smoke`
-- `build_default_llava_processor`
-- `prepare_llava_token_pair_batch`
-
-Migration guidance:
-- Import these from internal modules only if you need low-level control.
-- Prefer high-level APIs in `meap.api` for forward compatibility.
+For historical removals and migration notes, see:
+- `CHANGELOG.md`
+- `releases/v1.4.0.md`

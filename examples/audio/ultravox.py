@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Audio attribution example for Ultravox.
+"""Audio attribution example using AttributionModel + PreparedBatch.
 
 Workflow:
-1. Raw audio + dialogue turns -> pipeline preprocess -> model inputs
-2. Attribution (default: EAP)
-3. Graph visualization export (JSON + PNG)
+1. Raw audio + dialogue turns -> Ultravox preprocess -> PreparedBatch
+2. AttributionModel resolves language trunk and runs attribution
+3. Export graph JSON/PNG artifacts
 
 Run:
   python examples/audio/ultravox.py --device cpu --dtype float32 --method EAP
@@ -19,7 +19,7 @@ import json
 from pathlib import Path
 import sys
 import time
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Dict, Mapping
 
 import torch
 from transformers import AutoModel, pipeline
@@ -41,12 +41,8 @@ from examples.common import (  # noqa: E402
     write_run_summary,
 )
 
-from meap import (  # noqa: E402
-    HFLLMBackend,
-    PreparedBatch,
-    attribute_from_dataloader,
-)
-from meap.batch import PairBatchPreparer, validate_prepared_batch  # noqa: E402
+from meap import AttributionModel, PreparedBatch  # noqa: E402
+from meap.batch import validate_prepared_batch  # noqa: E402
 
 ULTRAVOX_AUDIO_PLACEHOLDER = "<|audio|>"
 
@@ -71,7 +67,7 @@ def _resolve_pad_token_id(infer_pipe: Any) -> int:
 
 
 @dataclass
-class UltravoxPairPreparer(PairBatchPreparer):
+class UltravoxPreparedBuilder:
     infer_pipe: Any
     device: torch.device
 
@@ -99,16 +95,15 @@ class UltravoxPairPreparer(PairBatchPreparer):
             )
         return out
 
-    def prepare_batch(
+    def build(
         self,
-        clean_samples,
-        corrupt_samples,
-        labels,
         *,
-        meta: Optional[Dict[str, Any]] = None,
+        clean_sample: Mapping[str, Any],
+        corrupt_sample: Mapping[str, Any],
+        labels: torch.Tensor,
     ) -> PreparedBatch:
-        clean_inputs = self._encode_one(clean_samples)
-        corrupt_inputs = self._encode_one(corrupt_samples)
+        clean_inputs = self._encode_one(clean_sample)
+        corrupt_inputs = self._encode_one(corrupt_sample)
         if "attention_mask" not in clean_inputs or "attention_mask" not in corrupt_inputs:
             raise ValueError("Ultravox preparer requires attention_mask in both clean and corrupt inputs.")
 
@@ -119,7 +114,6 @@ class UltravoxPairPreparer(PairBatchPreparer):
         clean_inputs["attention_mask"] = _pad_to_length(clean_inputs["attention_mask"], target_len, 0)
         corrupt_inputs["attention_mask"] = _pad_to_length(corrupt_inputs["attention_mask"], target_len, 0)
 
-        # PreparedBatch requires aligned clean/corrupt attention semantics.
         shared_mask = torch.minimum(clean_inputs["attention_mask"], corrupt_inputs["attention_mask"])
         clean_inputs["attention_mask"] = shared_mask
         corrupt_inputs["attention_mask"] = shared_mask.clone()
@@ -127,16 +121,15 @@ class UltravoxPairPreparer(PairBatchPreparer):
         prepared = PreparedBatch(
             clean_inputs=clean_inputs,
             corrupt_inputs=corrupt_inputs,
-            labels=labels,
+            labels=labels.to(device=self.device, dtype=torch.long),
             input_lengths=shared_mask.sum(dim=-1),
-            meta=meta,
         )
         validate_prepared_batch(prepared)
         return prepared
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Ultravox audio attribution example with graph visualization.")
+    parser = argparse.ArgumentParser(description="Ultravox audio attribution example.")
     parser.add_argument("--model-id", default="fixie-ai/ultravox-v0_5-llama-3_2-1b")
     parser.add_argument(
         "--method",
@@ -149,6 +142,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hf-token", default=None)
     parser.add_argument("--audio-path", default="")
     parser.add_argument("--audio-url", default=DEFAULT_AUDIO_URL)
+    parser.add_argument(
+        "--trust-remote-code",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
     parser.add_argument("--run-name", default="")
     parser.add_argument("--quiet", action="store_true")
     return parser.parse_args()
@@ -193,27 +191,34 @@ def main() -> None:
     try:
         model = AutoModel.from_pretrained(
             args.model_id,
-            trust_remote_code=True,
+            trust_remote_code=args.trust_remote_code,
             dtype=to_dtype(args.dtype),
             token=args.hf_token,
         ).to(args.device)
         model.eval()
 
-        backend = HFLLMBackend(model)
+        attribution_model = AttributionModel.from_model(
+            model=model,
+            device=args.device,
+            dtype=to_dtype(args.dtype),
+        )
+
         infer_pipe = pipeline(
             model=args.model_id,
-            trust_remote_code=True,
+            trust_remote_code=args.trust_remote_code,
             token=args.hf_token,
-            device=_pipeline_device_arg(backend.config.device),
+            device=_pipeline_device_arg(attribution_model.backend.config.device),
         )
-        pair_preparer = UltravoxPairPreparer(infer_pipe=infer_pipe, device=backend.config.device)
+        batch_builder = UltravoxPreparedBuilder(
+            infer_pipe=infer_pipe,
+            device=attribution_model.backend.config.device,
+        )
         audio_placeholder = getattr(
             getattr(infer_pipe, "processor", None),
             "audio_placeholder",
             ULTRAVOX_AUDIO_PLACEHOLDER,
         )
 
-        # Step 1: raw audio and prompt turns
         audio, sr = load_audio_from_path_or_url(
             audio_path=args.audio_path,
             audio_url=args.audio_url,
@@ -239,14 +244,16 @@ def main() -> None:
                 ),
             },
         ]
-        labels = resolve_target_pair(getattr(infer_pipe, "tokenizer", None), model)
+        clean_sample = {"audio": audio, "sampling_rate": sr, "turns": turns_clean}
+        corrupt_sample = {"audio": audio, "sampling_rate": sr, "turns": turns_corrupt}
+        labels = resolve_target_pair(getattr(infer_pipe, "tokenizer", None), attribution_model.model)
 
-        # Step 1 -> model inputs
-        prepared_batch = pair_preparer.prepare_batch(
-            clean_samples={"audio": audio, "sampling_rate": sr, "turns": turns_clean},
-            corrupt_samples={"audio": audio, "sampling_rate": sr, "turns": turns_corrupt},
+        prepared_batch = batch_builder.build(
+            clean_sample=clean_sample,
+            corrupt_sample=corrupt_sample,
             labels=labels,
         )
+
         write_model_input_summary(
             prepared_batch,
             output_dir / "model_input_summary.json",
@@ -261,25 +268,26 @@ def main() -> None:
             },
         )
 
-        # Step 2: attribution
-        run = attribute_from_dataloader(
-            model=model,
-            backend=backend,
-            dataloader=[prepared_batch],
+        run = attribution_model.attribute(
+            batches=[prepared_batch],
             metric=metric_logit_diff,
             method=args.method,
             quiet=args.quiet,
         )
-
-        # Step 3: visualization
         artifacts, graph_stats = export_graph_artifacts(run.graph, output_dir, topn=args.topn)
 
+        route = run.route_info
         result: Dict[str, Any] = {
             "modality": "audio",
             "model_id": args.model_id,
             "method": args.method,
             "status": "pass",
             "seconds": time.time() - start,
+            "route_info": {
+                "adapter_name": route.adapter_name,
+                "arch_kind": route.arch_kind,
+                "language_trunk_path": route.language_trunk_path,
+            },
             "graph_stats": dataclass_dict(graph_stats),
             "artifacts": {
                 **dataclass_dict(artifacts),

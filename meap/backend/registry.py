@@ -141,6 +141,40 @@ def _path_exists(root: Any, dotted: str) -> bool:
     return True
 
 
+def _resolve_explicit_candidate(
+    model: torch.nn.Module,
+    language_trunk_path: str,
+) -> Tuple[str, torch.nn.Module]:
+    def _resolve(path: str) -> Optional[torch.nn.Module]:
+        parts = [part for part in path.split(".") if part]
+        if len(parts) == 0:
+            return None
+        if parts[0] == "model":
+            parts = parts[1:]
+        node: Any = model
+        for part in parts:
+            if not hasattr(node, part):
+                return None
+            node = getattr(node, part)
+        if isinstance(node, torch.nn.Module):
+            return node
+        return None
+
+    candidate = _resolve(language_trunk_path)
+    normalized_path = language_trunk_path
+    if candidate is None and not language_trunk_path.startswith("model"):
+        normalized_path = f"model.{language_trunk_path}"
+        candidate = _resolve(normalized_path)
+    if candidate is not None:
+        return normalized_path, candidate
+
+    available = [path for path, _ in iter_decoder_backbone_candidates(model)]
+    raise ValueError(
+        f"language_trunk_path='{language_trunk_path}' not found or not a torch.nn.Module. "
+        f"Available candidates: {available}"
+    )
+
+
 def _adapter_module_requirements(
     backbone: torch.nn.Module,
     adapter: ArchitectureAdapter,
@@ -174,15 +208,33 @@ def resolve_adapter_resolution(
     adapters: Sequence[ArchitectureAdapter],
     *,
     adapter_name: Optional[str] = None,
+    language_trunk_path: Optional[str] = None,
 ) -> Tuple[ArchitectureAdapter, AdapterResolution, Dict[str, Any]]:
-    candidates = iter_decoder_backbone_candidates(model)
-    diagnostics = _new_resolution_diagnostics(candidates, adapters)
+    if language_trunk_path is not None:
+        try:
+            candidates = [_resolve_explicit_candidate(model, language_trunk_path)]
+        except ValueError as exc:
+            diagnostics = _new_resolution_diagnostics([], adapters)
+            diagnostics["requested_adapter_name"] = adapter_name
+            diagnostics["requested_language_trunk_path"] = language_trunk_path
+            diagnostics["selection_error"] = str(exc)
+            raise ResolutionError(str(exc), diagnostics) from exc
+    else:
+        candidates = iter_decoder_backbone_candidates(model)
+
+    adapters_to_try = [adapter for adapter in adapters if adapter_name is None or adapter.name == adapter_name]
+    diagnostics = _new_resolution_diagnostics(candidates, adapters_to_try)
+    diagnostics["requested_adapter_name"] = adapter_name
+    diagnostics["requested_language_trunk_path"] = language_trunk_path
+    if len(adapters_to_try) == 0 and adapter_name is not None:
+        available = [adapter.name for adapter in adapters]
+        diagnostics["selection_error"] = (
+            f"Unknown adapter_name='{adapter_name}'. Available adapters: {available}"
+        )
+        raise ResolutionError(diagnostics["selection_error"], diagnostics)
 
     for path, backbone in candidates:
-        for adapter in adapters:
-            if adapter_name is not None and adapter.name != adapter_name:
-                continue
-
+        for adapter in adapters_to_try:
             required_modules, missing_modules = _adapter_module_requirements(backbone, adapter)
 
             try:
@@ -249,6 +301,7 @@ def resolve_adapter_resolution(
         )
     else:
         details_text = "no adapter produced a compatible backbone"
+    diagnostics["selection_error"] = details_text
 
     raise ResolutionError(
         (
@@ -264,17 +317,43 @@ def resolve_adapter_resolution(
 def inspect_model_architecture(
     model: torch.nn.Module,
     adapter_registry: Optional[Sequence[AdapterType]] = None,
+    *,
+    adapter_name: Optional[str] = None,
+    language_trunk_path: Optional[str] = None,
 ) -> Dict[str, Any]:
-    adapters = instantiate_adapters(adapter_registry)
-    candidates = iter_decoder_backbone_candidates(model)
+    adapters_all = instantiate_adapters(adapter_registry)
+    if adapter_name is not None:
+        adapters = [adapter for adapter in adapters_all if adapter.name == adapter_name]
+    else:
+        adapters = adapters_all
+
+    if language_trunk_path is not None:
+        try:
+            candidates = [_resolve_explicit_candidate(model, language_trunk_path)]
+        except ValueError as exc:
+            candidates = []
+            selection_error = str(exc)
+    else:
+        candidates = iter_decoder_backbone_candidates(model)
+        selection_error = ""
+
     report: Dict[str, Any] = {
         "candidate_backbones": [path for path, _ in candidates],
         "adapters": [adapter.name for adapter in adapters],
+        "requested_adapter_name": adapter_name,
+        "requested_language_trunk_path": language_trunk_path,
         "matches": [],
         "adapter_attempts": [],
         "errors": [],
         "selected": None,
     }
+    if adapter_name is not None and len(adapters) == 0:
+        report["selection_error"] = (
+            f"Unknown adapter_name='{adapter_name}'. "
+            f"Available adapters: {[adapter.name for adapter in adapters_all]}"
+        )
+    elif language_trunk_path is not None and len(candidates) == 0:
+        report["selection_error"] = selection_error
 
     for path, backbone in candidates:
         for adapter in adapters:
@@ -300,7 +379,12 @@ def inspect_model_architecture(
             report["matches"].append(entry)
 
     try:
-        _, _, resolution_diag = resolve_adapter_resolution(model, adapters)
+        _, _, resolution_diag = resolve_adapter_resolution(
+            model,
+            adapters_all,
+            adapter_name=adapter_name,
+            language_trunk_path=language_trunk_path,
+        )
         report["adapter_attempts"] = resolution_diag["adapter_attempts"]
         report["errors"] = resolution_diag["errors"]
         report["selected"] = resolution_diag["selected"]

@@ -3,7 +3,6 @@
 This directory is split into:
 
 - active scripts (top-level `scripts/`)
-- archived/legacy scripts (`scripts/cache/`)
 
 ## Active Scripts
 
@@ -61,17 +60,25 @@ python scripts/real_attribution_modalities.py \
   --output-dir reports/real_attribution
 ```
 
+8. `scripts/route_graph_matrix.py`
+- Purpose: verify `model -> language trunk -> graph/hook` route resolution across text and multimodal model sets.
+- Optional: add `--run-attribute-smoke` to run one minimal `PreparedBatch` attribution smoke (`method=smoke`) per model.
+- Output schema: `report_type=route_graph_matrix`, `schema_version=1.0.0`.
+- Typical use:
+```bash
+python scripts/route_graph_matrix.py \
+  --text-models gpt2,facebook/opt-125m,Qwen/Qwen2-0.5B \
+  --multimodal-models Qwen/Qwen2-VL-2B,llava-hf/llava-1.5-7b-hf,fixie-ai/ultravox-v0_5-llama-3_2-1b \
+  --run-attribute-smoke \
+  --device cpu \
+  --dtype float32 \
+  --output reports/route_graph_matrix.json
+```
+
 For per-model, per-modality walkthrough scripts, use:
+- `examples/text/attribution_model_prepared.py`
 - `examples/text/gpt2.py`
 - `examples/image/Qwen2-VL-2B.py`
 - `examples/audio/ultravox.py`
-
-## Archived Scripts
-
-Archived scripts are kept for historical/debug reference and are not part of the current recommended workflow:
-
-- `scripts/cache/e2e_llava_attribution.py`
-- `scripts/cache/e2e_qwen2_vl_smoke.py`
-- `scripts/cache/backend_unified_legacy.py`
 
 Use active scripts for current CI/reproducible runs.

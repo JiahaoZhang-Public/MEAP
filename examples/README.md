@@ -1,90 +1,103 @@
-# Examples
+# Examples (Prepared-Input-First)
 
-Per-modality end-to-end attribution examples using `meap`.
+This directory demonstrates the **current meap API**:
 
-Each example script follows the same 3-stage flow:
-1. Raw data -> processing -> model input tensors (`PreparedBatch`)
-2. Attribution (default `EAP`, `--method` also accepts other methods)
-3. Graph visualization export (`graph_full.json`, `graph_topn.json`, `graph_topn.png`)
+1. `model -> language trunk/graph` (via `AttributionModel`)
+2. `prepared inputs -> attribution` (via `PreparedBatch`)
 
-Outputs are saved under each modality folder and retained by run name/timestamp.
+The core API does not accept raw `clean_samples` / `corrupt_samples` directly.
+Each script shows how to turn raw modality data into `PreparedBatch` first.
 
-## Requirements
+## Prerequisites
 
-Recommended environment setup for running examples:
-
-```bash
-pip install -r requirements.txt
-pip install -e .[multimodal,viz]
-```
-
-Alternative one-shot setup:
+Install runtime + multimodal + graph export extras:
 
 ```bash
-pip install -r requirements-dev.txt
+pip install -e ".[multimodal,viz]"
 ```
 
-Visualization dependency:
-- `pygraphviz` is required for PNG graph rendering.
-- Install with: `pip install pygraphviz`
+Optional for private/gated models:
 
-## Text
+```bash
+huggingface-cli login
+```
 
-Script: `examples/text/gpt2.py`
+## Example Index
+
+- Minimal API quickstart: `examples/text/attribution_model_prepared.py`
+- Text walkthrough (GPT-2): `examples/text/gpt2.py`
+- Image walkthrough (Qwen2-VL-2B): `examples/image/Qwen2-VL-2B.py`
+- Audio walkthrough (Ultravox): `examples/audio/ultravox.py`
+
+## Quick Commands
+
+Minimal smoke test:
+
+```bash
+python examples/text/attribution_model_prepared.py --device cpu --dtype float32 --method smoke
+```
+
+Text attribution + graph export:
 
 ```bash
 python examples/text/gpt2.py --device cpu --dtype float32 --method EAP
 ```
 
-Output folder:
-- `examples/text/outputs/<run_name_or_timestamp>/`
-
-## Image
-
-Script: `examples/image/Qwen2-VL-2B.py`
+Image attribution + graph export:
 
 ```bash
-python examples/image/Qwen2-VL-2B.py --dtype float16 --method EAP --image-size 128
+python examples/image/Qwen2-VL-2B.py --device cpu --dtype float32 --method EAP
 ```
 
-Notes:
-- The script uses a white clean image and a black corrupt image.
-- Use `--image-size` to control dynamic image token count and memory use.
-
-Output folder:
-- `examples/image/outputs/<run_name_or_timestamp>/`
-
-Non-empty top200 variant:
-- Script: `examples/image/Qwen2-VL-2B_nonempty.py`
-- Uses root-aware pruning (`input_layer0`) to avoid empty top200 pruned graph.
+Audio attribution + graph export:
 
 ```bash
-python examples/image/Qwen2-VL-2B_nonempty.py --dtype float16 --method EAP --image-size 128
+python examples/audio/ultravox.py --device cpu --dtype float32 --method EAP
 ```
 
-## Audio
+## Output Artifacts
 
-Script: `examples/audio/ultravox.py`
+The 3 walkthrough scripts write outputs under each modality directory:
 
-```bash
-python examples/audio/ultravox.py --dtype float32 --method EAP
+- `outputs/<run_name_or_timestamp>/run_summary.json`
+- `outputs/<run_name_or_timestamp>/model_input_summary.json`
+- `outputs/<run_name_or_timestamp>/graph_full.json`
+- `outputs/<run_name_or_timestamp>/graph_topn.json`
+- `outputs/<run_name_or_timestamp>/graph_topn.png`
+
+`run_summary.json` includes route resolution (`adapter_name`, `language_trunk_path`) and graph stats.
+
+## PreparedBatch Contract
+
+All scripts construct this shape before calling `attribute(...)`:
+
+```python
+PreparedBatch(
+    clean_inputs={...},
+    corrupt_inputs={...},
+    labels=...,            # optional for some metrics
+    input_lengths=...,     # usually attention_mask.sum(-1)
+    meta=...,              # optional
+)
 ```
 
-Optional audio source override:
-- `--audio-path /local/path/audio.wav`
-- `--audio-url https://...`
+For clean/corrupt alignment rules, see:
+`examples/CLEAN_CORRUPT_ALIGNMENT.md`
 
-Output folder:
-- `examples/audio/outputs/<run_name_or_timestamp>/`
+## Method Choices
 
-Non-empty top200 variant:
-- Script: `examples/audio/ultravox_nonempty.py`
-- Uses root-aware pruning (`input_layer0`) to avoid empty top200 pruned graph.
+Supported `--method` values:
 
-```bash
-python examples/audio/ultravox_nonempty.py --dtype float32 --method EAP
-```
+- `smoke` (fast sanity check)
+- `EAP`
+- `EAP-IG-inputs`
+- `clean-corrupted`
+- `EAP-IG-activations`
+- `exact` (slow, debugging/reference)
 
-## Clean/Corrupt Alignment Guide
+## Troubleshooting
 
-See `examples/CLEAN_CORRUPT_ALIGNMENT.md` for how to construct aligned clean/corrupt samples correctly, with one real example for each modality (text/image/audio).
+- `ModuleNotFoundError: pygraphviz`: install `.[viz]`.
+- HF auth / gated model errors (`401`/`403`): run `huggingface-cli login` and pass `--hf-token` if needed.
+- OOM on GPU: switch to `--device cpu` or smaller model.
+- Multimodal prompt/placeholder mismatch: check the generated `model_input_summary.json` first.

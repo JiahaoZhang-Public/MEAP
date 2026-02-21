@@ -1,246 +1,118 @@
 # meap
 
-`meap` (Multimodal Edge Attribution Patching) is a Python package for running the EAP-family attribution methods on Hugging Face language-model backbones, including multimodal models via language-trunk attribution.
+`meap` (Multimodal Edge Attribution Patching) runs EAP-family attribution on Hugging Face language-model trunks, including multimodal models through language-trunk routing.
 
-## Upstream Reference
+## Install
 
-This repository's initial code scaffold was directly copied from the original EAP-IG repository and then refactored/extended for multimodal and Hugging Face backend support:
+Runtime:
 
-- [hannamw/EAP-IG](https://github.com/hannamw/EAP-IG)
-
-Import path:
-
-```python
-import meap
+```bash
+pip install meap
 ```
 
-TestPyPI package name:
+TestPyPI (optional):
 
 ```bash
 pip install -i https://test.pypi.org/simple/ meap
 ```
 
-## Quick Start (10 Minutes)
-
-### 1) Install
+Development:
 
 ```bash
-conda create -n meap-ig python=3.10 -y
-conda activate meap-ig
 pip install -e ".[dev,multimodal,viz,docs]"
 ```
 
-### 2) Run one smoke example (text)
+## Primary API (v1.4.0)
 
-```bash
-python scripts/api_minimal_examples.py \
-  --example text-gpt2 \
-  --method smoke \
-  --device cpu \
-  --dtype float32
-```
+Use `AttributionModel` as the default user entrypoint.
 
-### 3) Optional: save a JSON report
-
-```bash
-python scripts/api_minimal_examples.py \
-  --example text-gpt2 \
-  --method smoke \
-  --device cpu \
-  --dtype float32 \
-  --output reports/example_text_gpt2.json
-```
-
-## Stable API
-
-Stable high-level API lives in `meap.api`.
-
-- `attribute_from_dataloader`
-- `evaluate_graph_from_dataloader`
-- `evaluate_baseline_from_dataloader`
-- `AttributionRunResult`
-
-API stability policy and deprecations:
-- `docs/docs/API_STABILITY.md`
-
-## Two Supported Input Entrypoints
-
-### Entrypoint A: `PreparedBatch` (fully user-prepared inputs)
+Core contract:
+1. `model -> language trunk/graph`
+2. `prepared inputs -> attribution`
 
 ```python
-from meap import HFLLMBackend, attribute_from_dataloader
+from meap import AttributionModel
 
-backend = HFLLMBackend(model, tokenizer=tokenizer)
-result = attribute_from_dataloader(
-    model=model,
-    backend=backend,
-    dataloader=[prepared_batch],  # PreparedBatch
+am = AttributionModel.from_pretrained("gpt2")
+result = am.attribute(
+    batches=[prepared_batch],
     metric=metric_fn,
     method="EAP",
 )
 ```
 
-### Entrypoint B: raw clean/corrupt + `processor` or `pair_batch_preparer`
+## Input Contract
 
-```python
-from meap import HFLLMBackend, attribute_from_dataloader
+Core API accepts:
+- `PreparedBatch`
+- nested prepared tensor mappings with:
+  - `clean_inputs`
+  - `corrupt_inputs`
+  - optional `labels`, `input_lengths`, `meta`
 
-backend = HFLLMBackend(model, tokenizer=getattr(processor, "tokenizer", None))
-result = attribute_from_dataloader(
-    model=model,
-    backend=backend,
-    dataloader=[{"clean": clean_samples, "corrupt": corrupt_samples, "labels": labels}],
-    processor=processor,  # or pair_batch_preparer=...
-    metric=metric_fn,
-    method="smoke",
-)
-```
+Core API does not accept:
+- raw `clean_samples` / `corrupt_samples`
+- `pair_batch_preparer`
 
-Notes:
-- `processor` and `pair_batch_preparer` are mutually exclusive.
-- High-level API does not do implicit truncation.
+## Dataloader Evaluation APIs
 
-## Minimal Executable Examples
+The following evaluation wrappers remain available for dataloader-based workflows:
+- `evaluate_graph_from_dataloader(...)`
+- `evaluate_baseline_from_dataloader(...)`
 
-All examples share unified arguments:
-- `--example`
-- `--method`
-- `--device`
-- `--dtype`
-- `--hf-token` (optional)
-- `--output` (optional)
+## Quick Commands
 
-### Text: GPT-2 (`PreparedBatch` path)
+Examples guide (recommended starting point):
 
 ```bash
-python scripts/api_minimal_examples.py \
-  --example text-gpt2 \
-  --method smoke \
+cat examples/README.md
+```
+
+Minimal prepared-input example:
+
+```bash
+python examples/text/attribution_model_prepared.py --device cpu --dtype float32 --method smoke
+```
+
+Per-modality walkthroughs:
+
+```bash
+python examples/text/gpt2.py --device cpu --dtype float32 --method EAP
+python examples/image/Qwen2-VL-2B.py --device cpu --dtype float32 --method EAP
+python examples/audio/ultravox.py --device cpu --dtype float32 --method EAP
+```
+
+Model route + graph/hook matrix:
+
+```bash
+python scripts/route_graph_matrix.py \
+  --text-models gpt2,facebook/opt-125m,Qwen/Qwen2-0.5B \
+  --multimodal-models Qwen/Qwen2-VL-2B,llava-hf/llava-1.5-7b-hf,fixie-ai/ultravox-v0_5-llama-3_2-1b \
+  --run-attribute-smoke \
   --device cpu \
   --dtype float32
 ```
 
-### Text: Qwen2-0.5B (`PreparedBatch` path)
+Release gate:
 
 ```bash
-python scripts/api_minimal_examples.py \
-  --example text-qwen2 \
-  --method smoke \
-  --device cpu \
-  --dtype float32
-```
-
-### Image-text: Qwen2-VL-2B (`processor` path)
-
-```bash
-python scripts/api_minimal_examples.py \
-  --example image-qwen2vl \
-  --method smoke \
-  --device cpu \
-  --dtype float32
-```
-
-### Audio: Ultravox (`pair_batch_preparer` path)
-
-```bash
-python scripts/api_minimal_examples.py \
-  --example audio-ultravox \
-  --method smoke \
-  --device cpu \
-  --dtype float32
-```
-
-Optional overrides for the default audio smoke input:
-- `--audio-path /path/to/audio.wav`
-- `--audio-url https://.../your_audio.mp3` (used when `--audio-path` is empty)
-- `--audio-prompt "Generate the caption in English:"`
-
-## Real Attribution + Graph Visualization
-
-Run one command to execute real attribution experiments for text/image/audio and export graph
-artifacts (`full.json`, `topn.json`, `topn.png`) per modality:
-
-```bash
-python scripts/real_attribution_modalities.py \
-  --modalities text,image,audio \
-  --method EAP \
-  --device cpu \
-  --dtype float32 \
-  --topn 200 \
-  --output-dir reports/real_attribution
-```
-
-## Per-Modality Example Scripts
-
-Detailed per-model examples are available under `examples/`:
-
-- `examples/text/gpt2.py`
-- `examples/image/Qwen2-VL-2B.py`
-- `examples/audio/ultravox.py`
-
-Each script explicitly demonstrates:
-1. raw data -> process -> model inputs
-2. attribution
-3. graph visualization export
-
-See `examples/README.md` for usage and outputs.
-
-## Supported Methods
-
-- `smoke`
-- `EAP`
-- `EAP-IG-inputs`
-- `clean-corrupted`
-- `EAP-IG-activations`
-- `exact`
-
-## Current Limits
-
-- Multimodal attribution currently targets language-model trunk only.
-- Some architectures still require adapter extension for full method parity.
-- `exact` can be expensive; parity scripts support skip-by-edge-threshold policy.
-
-## Release Engineering (v1.1.0)
-
-Changelog:
-- `CHANGELOG.md`
-
-Scripted release flow:
-- `scripts/release/release.py`
-- `scripts/release/README.md`
-- `docs/docs/RELEASE_PROCESS.md`
-
-Typical release flow:
-
-```bash
-python scripts/release/release.py set-version --version 1.1.0
 python scripts/release/release.py gate --clean-dist
-python scripts/release/release.py notes --version v1.1.0
-python scripts/release/release.py tag --version v1.1.0 --push
 ```
 
-For RC releases, use tags like `v1.1.0-rc1`.
+## Documentation
 
-## Docs Map
+- `meap/README.md`
+- `docs/docs/API_STABILITY.md`
+- `docs/docs/SUPPORTED_MODELS.md`
+- `docs/docs/ATTRIBUTION_MODEL_API_DESIGN.md`
+- `scripts/README.md`
 
-Active docs:
-- Package guide: `meap/README.md`
-- API stability: `docs/docs/API_STABILITY.md`
-- Compatibility matrix: `docs/docs/COMPATIBILITY_MATRIX.md`
-- Supported models: `docs/docs/SUPPORTED_MODELS.md`
-- Report schemas: `docs/docs/REPORT_SCHEMAS.md`
-- Release process: `docs/docs/RELEASE_PROCESS.md`
-- New model onboarding (5 min): `docs/docs/NEW_MODEL_ONBOARDING.md`
-- Scripts guide: `scripts/README.md`
+## Versioning
 
-Archived historical docs (cache):
-- Staged implementation history: `docs/cache/STAGED_IMPLEMENTATION.md`
-- Early refactor design context: `docs/cache/REFACTOR_DESIGN.md`
+- Current release baseline: `1.4.0`
+- Historical migration notes: `CHANGELOG.md` and `releases/v1.4.0.md`
 
-## Development
+## Upstream Reference
 
-```bash
-ruff check meap tests scripts
-pytest -q
-mypy
-```
+Initial scaffold reference:
+- [hannamw/EAP-IG](https://github.com/hannamw/EAP-IG)

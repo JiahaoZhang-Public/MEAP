@@ -7,17 +7,21 @@ Scope:
 - VLM models: smoke-first on language trunk attribution.
 - Assumption: model has an identifiable LM decoder backbone.
 
+Route term definitions:
+- `language_trunk_path`: path used to locate the language-model `nn.Module` inside the HF model object.
+- `adapter_name`: architecture adapter used to interpret layer/attention/MLP structure inside that trunk.
+
 ## 1) Decide Path
 
 Use one of the two paths:
 
-1. Existing adapter already matches model structure:
-- No backend code changes.
-- Run diagnostics + smoke/parity commands only.
+1. **Non-official extension (runtime registration)**:
+- Register adapter in your runtime via `register_architecture_adapter(...)`.
+- Use `AttributionModel.from_pretrained(..., adapter_name=..., language_trunk_path=...)`.
 
-2. New adapter is required:
-- Copy adapter template and register it.
-- Add tests and run full required checks.
+2. **Official support (upstream PR)**:
+- Add adapter + catalog entry + tests + docs.
+- Keep `docs/docs/SUPPORTED_MODELS.md` and `meap.catalog` in sync.
 
 ## 2) Add a New Adapter
 
@@ -41,6 +45,7 @@ Steps:
 3. Register adapter:
 - Export adapter in `meap/backend/adapters/__init__.py`
 - Add class to `_default_adapter_classes()` in `meap/backend/registry.py`
+- Add official mapping to `meap/catalog.py` if this is an official support PR.
 
 4. Add tests:
 - Adapter registry test: `tests/test_adapter_registry.py`
@@ -56,7 +61,25 @@ python scripts/inspect_adapter_registry.py --model-id <model_id> --output report
 
 Success signal:
 - `backend_init.status == "ok"`
-- non-empty `adapter_name`, `backbone_path`, `arch_kind`
+- non-empty `adapter_name`, `language_trunk_path`, `arch_kind`
+
+Optional explicit resolution check:
+
+```python
+from meap import AttributionModel, TaskSpec
+
+am = AttributionModel.from_pretrained(
+    "<model_or_local_path>",
+    adapter_name="<arch_adapter_name>",
+    language_trunk_path="<optional_trunk_path>",
+)
+
+_ = am.attribute(
+    batches=[prepared_batch],
+    task=TaskSpec(task="next_token", labels=[1]),
+    method="smoke",
+)
+```
 
 ### B. Smoke run (single model)
 
@@ -125,10 +148,11 @@ VLM onboarding:
 ## 6) Minimal PR Checklist
 
 1. Adapter code + registration (if needed).
-2. Tests added/updated.
-3. Required commands executed.
-4. Report artifacts generated locally (do not commit `reports/*.json`).
-5. PR body includes:
+2. Catalog update (`meap/catalog.py`) for official model support.
+3. Tests added/updated.
+4. Required commands executed.
+5. Report artifacts generated locally (do not commit `reports/*.json`).
+6. PR body includes:
 - change scope
 - test results
 - known limits

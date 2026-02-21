@@ -26,30 +26,22 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from meap import (  # noqa: E402
+    AttributionModel,
     HFLLMBackend,
+    HFProcessorAdapter,
     PreparedBatch,
     attribute,
-    attribute_from_dataloader,
     inspect_model_architecture,
+    list_official_models,
 )
 from meap.batch import PairBatchPreparer, validate_prepared_batch  # noqa: E402
 from meap.graph import Graph  # noqa: E402
 
-DEFAULT_TEXT_MODELS = [
-    "gpt2",
-    "distilgpt2",
-    "facebook/opt-125m",
-    "Qwen/Qwen2-0.5B",
-    "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
-]
-DEFAULT_MULTIMODAL_MODELS = [
-    "Qwen/Qwen2-VL-2B",
-    "llava-hf/llava-1.5-7b-hf",
-    "HuggingFaceTB/SmolVLM-Instruct",
-    "Qwen/Qwen2-Audio-7B",
-]
+_OFFICIAL_MODELS = list_official_models()
+DEFAULT_TEXT_MODELS = [row["model_id"] for row in _OFFICIAL_MODELS if row["modality"] == "text"]
+DEFAULT_MULTIMODAL_MODELS = [row["model_id"] for row in _OFFICIAL_MODELS if row["modality"] == "multimodal"]
 REPORT_TYPE = "smoke_hf_matrix"
-SCHEMA_VERSION = "1.0.0"
+SCHEMA_VERSION = "1.1.0"
 
 
 @dataclass
@@ -57,7 +49,7 @@ class SmokeRow:
     model_id: str
     modality: str
     adapter_name: str
-    backbone_path: str
+    language_trunk_path: str
     arch_kind: str
     status: str
     seconds: float
@@ -301,7 +293,7 @@ def run_text_smoke_model(
             model_id=model_id,
             modality="text",
             adapter_name=backend.adapter_name,
-            backbone_path=backend.backbone_path,
+            language_trunk_path=backend.language_trunk_path,
             arch_kind=backend.arch_kind,
             status="pass",
             seconds=time.time() - start,
@@ -338,7 +330,7 @@ def run_text_smoke_model(
             model_id=model_id,
             modality="text",
             adapter_name="",
-            backbone_path="",
+            language_trunk_path="",
             arch_kind="",
             status="fail",
             seconds=time.time() - start,
@@ -378,26 +370,30 @@ def run_multimodal_smoke_model(
         model = model.to(device=device)
         model.eval()
 
-        backend = HFLLMBackend(model, tokenizer=getattr(processor, "tokenizer", None))
-        graph = Graph.from_model(backend.config)
+        attribution_model = AttributionModel.from_model(
+            model,
+            tokenizer=getattr(processor, "tokenizer", None),
+            device=device,
+            dtype=dtype,
+        )
+        route_info = attribution_model.route_info
+        graph = attribution_model.build_graph()
 
         image = _build_demo_image()
         clean_prompt = _build_multimodal_prompt(processor, "Is the square white?")
         corrupt_prompt = _build_multimodal_prompt(processor, "Is the square black?")
-        dataloader = [
-            {
-                "clean": [{"text": clean_prompt, "images": image}],
-                "corrupt": [{"text": corrupt_prompt, "images": image}],
-                "labels": None,
-            }
-        ]
-
-        scores = attribute_from_dataloader(
-            model=model,
-            backend=backend,
-            dataloader=dataloader,
-            metric=smoke_metric,
+        preparer = HFProcessorAdapter(
             processor=processor,
+            device=attribution_model.backend.config.device,
+        )
+        prepared = preparer.prepare_batch(
+            clean_samples=[{"text": clean_prompt, "images": image}],
+            corrupt_samples=[{"text": corrupt_prompt, "images": image}],
+            labels=None,
+        )
+        scores = attribution_model.attribute(
+            batches=[prepared],
+            metric=smoke_metric,
             method="smoke",
             quiet=True,
         ).scores
@@ -405,9 +401,9 @@ def run_multimodal_smoke_model(
         return SmokeRow(
             model_id=model_id,
             modality="multimodal",
-            adapter_name=backend.adapter_name,
-            backbone_path=backend.backbone_path,
-            arch_kind=backend.arch_kind,
+            adapter_name=route_info.adapter_name,
+            language_trunk_path=route_info.language_trunk_path,
+            arch_kind=route_info.arch_kind,
             status="pass",
             seconds=time.time() - start,
             error_type="",
@@ -443,7 +439,7 @@ def run_multimodal_smoke_model(
             model_id=model_id,
             modality="multimodal",
             adapter_name="",
-            backbone_path="",
+            language_trunk_path="",
             arch_kind="",
             status="fail",
             seconds=time.time() - start,
@@ -475,9 +471,17 @@ def run_audio_smoke_model(
         if "ultravox" in current_model_id.lower():
             model = _load_audio_model(current_model_id, dtype=dtype, token=token).to(device=device)
             model.eval()
-            backend = HFLLMBackend(model)
+            attribution_model = AttributionModel.from_model(
+                model,
+                device=device,
+                dtype=dtype,
+            )
+            route_info = attribution_model.route_info
             infer_pipe = pipeline(model=current_model_id, trust_remote_code=True, token=token)
-            pair_preparer = UltravoxPairPreparer(infer_pipe=infer_pipe, device=backend.config.device)
+            pair_preparer = UltravoxPairPreparer(
+                infer_pipe=infer_pipe,
+                device=attribution_model.backend.config.device,
+            )
             turns_clean = [
                 {"role": "system", "content": "You are concise."},
                 {"role": "user", "content": "Summarize the spoken content in one sentence."},
@@ -486,19 +490,14 @@ def run_audio_smoke_model(
                 {"role": "system", "content": "You are concise."},
                 {"role": "user", "content": "Transcribe the spoken content."},
             ]
-            dataloader = [
-                {
-                    "clean": {"audio": audio, "sampling_rate": 16000, "turns": turns_clean},
-                    "corrupt": {"audio": audio, "sampling_rate": 16000, "turns": turns_corrupt},
-                    "labels": None,
-                }
-            ]
-            scores = attribute_from_dataloader(
-                model=model,
-                backend=backend,
-                dataloader=dataloader,
+            prepared = pair_preparer.prepare_batch(
+                clean_samples={"audio": audio, "sampling_rate": 16000, "turns": turns_clean},
+                corrupt_samples={"audio": audio, "sampling_rate": 16000, "turns": turns_corrupt},
+                labels=None,
+            )
+            scores = attribution_model.attribute(
+                batches=[prepared],
                 metric=smoke_metric,
-                pair_batch_preparer=pair_preparer,
                 method="smoke",
                 quiet=True,
             ).scores
@@ -506,33 +505,38 @@ def run_audio_smoke_model(
             processor = AutoProcessor.from_pretrained(current_model_id, **kwargs)
             model = _load_audio_model(current_model_id, dtype=dtype, token=token).to(device=device)
             model.eval()
-            backend = HFLLMBackend(model, tokenizer=getattr(processor, "tokenizer", None))
+            attribution_model = AttributionModel.from_model(
+                model,
+                tokenizer=getattr(processor, "tokenizer", None),
+                device=device,
+                dtype=dtype,
+            )
+            route_info = attribution_model.route_info
             clean_prompt = "<|audio_bos|><|AUDIO|><|audio_eos|>Summarize the audio:"
             corrupt_prompt = "<|audio_bos|><|AUDIO|><|audio_eos|>Transcribe the audio:"
-            dataloader = [
-                {
-                    "clean": {"text": clean_prompt, "audio": audio, "sampling_rate": 16000},
-                    "corrupt": {"text": corrupt_prompt, "audio": audio, "sampling_rate": 16000},
-                    "labels": None,
-                }
-            ]
-            scores = attribute_from_dataloader(
-                model=model,
-                backend=backend,
-                dataloader=dataloader,
-                metric=smoke_metric,
+            preparer = HFProcessorAdapter(
                 processor=processor,
+                device=attribution_model.backend.config.device,
+            )
+            prepared = preparer.prepare_batch(
+                clean_samples={"text": clean_prompt, "audio": audio, "sampling_rate": 16000},
+                corrupt_samples={"text": corrupt_prompt, "audio": audio, "sampling_rate": 16000},
+                labels=None,
+            )
+            scores = attribution_model.attribute(
+                batches=[prepared],
+                metric=smoke_metric,
                 method="smoke",
                 quiet=True,
             ).scores
 
-        graph = Graph.from_model(backend.config)
+        graph = attribution_model.build_graph()
         return SmokeRow(
             model_id=requested_model_id,
             modality="multimodal",
-            adapter_name=backend.adapter_name,
-            backbone_path=backend.backbone_path,
-            arch_kind=backend.arch_kind,
+            adapter_name=route_info.adapter_name,
+            language_trunk_path=route_info.language_trunk_path,
+            arch_kind=route_info.arch_kind,
             status="pass",
             seconds=time.time() - start,
             error_type="",
@@ -568,7 +572,7 @@ def run_audio_smoke_model(
                     model_id=requested_model_id,
                     modality="multimodal",
                     adapter_name="",
-                    backbone_path="",
+                    language_trunk_path="",
                     arch_kind="",
                     status="fail",
                     seconds=time.time() - start,
@@ -585,7 +589,7 @@ def run_audio_smoke_model(
             model_id=requested_model_id,
             modality="multimodal",
             adapter_name="",
-            backbone_path="",
+            language_trunk_path="",
             arch_kind="",
             status="fail",
             seconds=time.time() - start,

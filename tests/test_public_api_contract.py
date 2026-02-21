@@ -1,7 +1,5 @@
 import importlib
 
-import pytest
-
 import meap as pkg
 
 attribute_module = importlib.import_module("meap.attribute")
@@ -11,32 +9,56 @@ utils_module = importlib.import_module("meap.utils")
 
 def test_stable_public_api_symbols_are_exported():
     expected = {
-        "AttributionRunResult",
-        "attribute_from_dataloader",
+        "AttributionModel",
+        "AttributionResult",
+        "PreparedInputLike",
+        "RouteInfo",
+        "TaskSpec",
         "evaluate_graph_from_dataloader",
         "evaluate_baseline_from_dataloader",
         "HFLLMBackend",
         "TLensBackend",
         "PreparedBatch",
         "RawPairBatch",
-        "DictPairBatch",
         "HFProcessorAdapter",
         "Graph",
         "register_architecture_adapter",
         "inspect_model_architecture",
+        "list_supported_architectures",
+        "list_official_models",
         "resolve_backend",
     }
     assert expected.issubset(set(pkg.__all__))
 
 
-def test_deprecated_top_level_score_helpers_emit_warning(monkeypatch):
-    sentinel = object()
-    monkeypatch.setattr(pkg, "_get_scores_smoke", lambda *args, **kwargs: sentinel)
+def test_removed_deprecated_top_level_helpers_are_not_exported():
+    removed = {
+        "get_real_edge_scores",
+        "get_scores_clean_corrupted",
+        "get_scores_eap",
+        "get_scores_eap_ig",
+        "get_scores_exact",
+        "get_scores_ig_activations",
+        "get_scores_smoke",
+        "build_default_llava_processor",
+        "prepare_llava_token_pair_batch",
+    }
+    assert removed.isdisjoint(set(pkg.__all__))
+    for symbol in removed:
+        assert not hasattr(pkg, symbol)
 
-    with pytest.warns(DeprecationWarning, match="removed in 1.2.0"):
-        result = pkg.get_scores_smoke("dummy")
 
-    assert result is sentinel
+def test_removed_legacy_wrappers_are_not_exported():
+    removed = {
+        "discover_circuit",
+        "attribute_from_dataloader",
+        "AttributionRunResult",
+        "CircuitEdgeSummary",
+        "CircuitRunResult",
+    }
+    assert removed.isdisjoint(set(pkg.__all__))
+    for symbol in removed:
+        assert not hasattr(pkg, symbol)
 
 
 def test_internal_modules_are_marked_internal():

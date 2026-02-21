@@ -64,6 +64,27 @@ def test_inspect_model_architecture_contains_selection():
     assert report["selected"]["adapter"] in {"llama_like", "priority_llama"}
 
 
+def test_inspect_model_architecture_respects_requested_adapter_and_trunk():
+    model = _tiny_llama()
+    report = inspect_model_architecture(
+        model,
+        adapter_name="llama_like",
+        language_trunk_path="model.model",
+    )
+    assert report["requested_adapter_name"] == "llama_like"
+    assert report["requested_language_trunk_path"] == "model.model"
+    assert report["selected"] is not None
+    assert report["selected"]["adapter"] == "llama_like"
+    assert report["selected"]["path"] == "model.model"
+
+
+def test_inspect_model_architecture_reports_unknown_adapter():
+    model = _tiny_llama()
+    report = inspect_model_architecture(model, adapter_name="unknown_adapter")
+    assert "selection_error" in report
+    assert "unknown_adapter" in report["selection_error"]
+
+
 def test_inspect_model_architecture_match_schema_is_stable():
     model = _tiny_llama()
     report = inspect_model_architecture(model)
@@ -83,5 +104,5 @@ def test_hf_resolution_is_deterministic_for_same_model():
     backend_a = HFLLMBackend(model)
     backend_b = HFLLMBackend(model)
     assert backend_a.adapter_name == backend_b.adapter_name
-    assert backend_a.backbone_path == backend_b.backbone_path
+    assert backend_a.language_trunk_path == backend_b.language_trunk_path
     assert backend_a.arch_kind == backend_b.arch_kind

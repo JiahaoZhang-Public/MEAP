@@ -82,11 +82,24 @@ def get_scores_exact(
     """Get exact leave-one-edge-out scores by repeated graph evaluation."""
 
     backend_obj = _resolve_backend_for_method(model, backend, method="exact")
+    prepared_batches = list(iter_prepared_batches(backend_obj.tokenization_model, batches))
+    if len(prepared_batches) == 0:
+        raise ValueError("Cannot score an empty batch iterable")
+    prepared_intervention_batches = None
+    if intervention_batches is not None:
+        prepared_intervention_batches = list(
+            iter_prepared_batches(backend_obj.tokenization_model, intervention_batches)
+        )
 
-    graph.in_graph |= graph.real_edge_mask
+    graph_for_eval = Graph.from_model(
+        graph.cfg,
+        neuron_level=graph.neurons_in_graph is not None,
+        node_scores=graph.nodes_scores is not None,
+    )
+
     baseline = evaluate_baseline(
         model,
-        batches,
+        prepared_batches,
         metric,
         backend=backend_obj,
         quiet=quiet,
@@ -94,20 +107,20 @@ def get_scores_exact(
 
     edges = graph.edges.values() if quiet else tqdm(graph.edges.values())
     for edge in edges:
-        edge.in_graph = False
+        graph_for_eval.reset(empty=False)
+        graph_for_eval.edges[edge.name].in_graph = False
         intervened = evaluate_graph(
             model,
-            graph,
-            batches,
+            graph_for_eval,
+            prepared_batches,
             metric,
             backend=backend_obj,
             intervention=intervention,
-            intervention_batches=intervention_batches,
+            intervention_batches=prepared_intervention_batches,
             quiet=True,
             skip_clean=True,
         ).mean().item()
         edge.score = intervened - baseline
-        edge.in_graph = True
 
     return graph.scores
 

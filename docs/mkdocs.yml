@@ -4,7 +4,7 @@ site_author: Jiahao Zhang
 nav:
   - Home: index.md
   - API Stability: API_STABILITY.md
-  - Compatibility Matrix: COMPATIBILITY_MATRIX.md
+  - AttributionModel API Design: ATTRIBUTION_MODEL_API_DESIGN.md
   - Supported Models: SUPPORTED_MODELS.md
   - Report Schemas: REPORT_SCHEMAS.md
   - Release Process: RELEASE_PROCESS.md

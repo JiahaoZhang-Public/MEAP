@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Image-text attribution example for Qwen2-VL-2B.
+"""Image-text attribution example using AttributionModel + PreparedBatch.
 
 Workflow:
-1. Raw image + question pairs -> processor -> model inputs
-2. Attribution (default: EAP)
-3. Graph visualization export (JSON + PNG)
+1. Raw image + question -> processor tensors -> PreparedBatch
+2. AttributionModel resolves language trunk and runs attribution
+3. Export graph JSON/PNG artifacts
 
 Run:
   python examples/image/Qwen2-VL-2B.py --device cpu --dtype float32 --method EAP
@@ -37,16 +37,12 @@ from examples.common import (  # noqa: E402
     write_run_summary,
 )
 
-from meap import (  # noqa: E402
-    HFLLMBackend,
-    PreparedBatch,
-    attribute_from_dataloader,
-)
+from meap import AttributionModel, PreparedBatch  # noqa: E402
 from meap.batch import validate_prepared_batch  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Qwen2-VL attribution example with graph visualization.")
+    parser = argparse.ArgumentParser(description="Qwen2-VL image attribution example.")
     parser.add_argument("--model-id", default="Qwen/Qwen2-VL-2B")
     parser.add_argument(
         "--method",
@@ -62,6 +58,11 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=128,
         help="Square resize for clean/corrupt images to reduce dynamic image tokens.",
+    )
+    parser.add_argument(
+        "--trust-remote-code",
+        action=argparse.BooleanOptionalAction,
+        default=True,
     )
     parser.add_argument("--run-name", default="")
     parser.add_argument("--quiet", action="store_true")
@@ -100,7 +101,7 @@ def _build_prompt(processor: Any, question: str) -> str:
     return f"<|vision_start|><|image_pad|><|vision_end|>\n{question}"
 
 
-def _batchfeature_to_tensors(batch_feature) -> Dict[str, torch.Tensor]:
+def _batchfeature_to_tensors(batch_feature: Any) -> Dict[str, torch.Tensor]:
     return {k: v for k, v in batch_feature.items() if torch.is_tensor(v)}
 
 
@@ -130,7 +131,7 @@ def _prepare_image_pair_batch(
     corrupt_prompt: str,
     clean_image: Any,
     corrupt_image: Any,
-    labels: Any,
+    labels: torch.Tensor,
     device: torch.device,
 ) -> PreparedBatch:
     clean_feature = processor(
@@ -158,6 +159,7 @@ def _prepare_image_pair_batch(
         clean_inputs["attention_mask"] = _pad_to_length(clean_inputs["attention_mask"], target_len, 0)
     else:
         clean_inputs["attention_mask"] = (clean_inputs["input_ids"] != pad_token_id).long()
+
     if "attention_mask" in corrupt_inputs:
         corrupt_inputs["attention_mask"] = _pad_to_length(corrupt_inputs["attention_mask"], target_len, 0)
     else:
@@ -170,18 +172,17 @@ def _prepare_image_pair_batch(
     clean_inputs["attention_mask"] = shared_mask
     corrupt_inputs["attention_mask"] = shared_mask.clone()
 
-    prepared_batch = PreparedBatch(
+    batch = PreparedBatch(
         clean_inputs=clean_inputs,
         corrupt_inputs=corrupt_inputs,
-        labels=labels,
+        labels=labels.to(device=device, dtype=torch.long),
         input_lengths=shared_mask.sum(dim=-1),
     )
-    validate_prepared_batch(prepared_batch)
-    return prepared_batch
+    validate_prepared_batch(batch)
+    return batch
 
 
-def _build_clean_corrupt_images(image: Image.Image, image_size: int) -> tuple[Image.Image, Image.Image]:
-    del image
+def _build_clean_corrupt_images(image_size: int) -> tuple[Image.Image, Image.Image]:
     if image_size <= 0:
         raise ValueError(f"--image-size must be positive, got {image_size}")
     clean = Image.new("RGB", (image_size, image_size), color=(255, 255, 255))
@@ -209,7 +210,11 @@ def _resolve_white_black_pair(tokenizer: Any) -> torch.Tensor:
     raise ValueError("Could not resolve single-token ids for 'white' and 'black'.")
 
 
-def _metric_white_black_logit_diff(logits: torch.Tensor, clean_logits: torch.Tensor | None, batch) -> torch.Tensor:
+def _metric_white_black_logit_diff(
+    logits: torch.Tensor,
+    clean_logits: torch.Tensor | None,
+    batch: PreparedBatch,
+) -> torch.Tensor:
     del clean_logits
     labels = batch.labels
     if not torch.is_tensor(labels):
@@ -223,8 +228,26 @@ def _metric_white_black_logit_diff(logits: torch.Tensor, clean_logits: torch.Ten
     batch_idx = torch.arange(logits.shape[0], device=logits.device)
     final_logits = logits[batch_idx, input_lengths - 1]
     selected = torch.gather(final_logits, dim=-1, index=labels)
-    # white - black
     return (selected[:, 0] - selected[:, 1]).mean()
+
+
+def _load_model(model_id: str, *, dtype: torch.dtype, token: str | None, trust_remote_code: bool):
+    try:
+        return AutoModelForImageTextToText.from_pretrained(
+            model_id,
+            dtype=dtype,
+            token=token,
+            trust_remote_code=trust_remote_code,
+        )
+    except Exception:
+        from transformers import AutoModelForVision2Seq
+
+        return AutoModelForVision2Seq.from_pretrained(
+            model_id,
+            dtype=dtype,
+            token=token,
+            trust_remote_code=trust_remote_code,
+        )
 
 
 def main() -> None:
@@ -233,30 +256,27 @@ def main() -> None:
     start = time.time()
 
     try:
-        processor = AutoProcessor.from_pretrained(args.model_id, token=args.hf_token, trust_remote_code=True)
-        try:
-            model = AutoModelForImageTextToText.from_pretrained(
-                args.model_id,
-                dtype=to_dtype(args.dtype),
-                token=args.hf_token,
-                trust_remote_code=True,
-            )
-        except Exception:
-            from transformers import AutoModelForVision2Seq
-
-            model = AutoModelForVision2Seq.from_pretrained(
-                args.model_id,
-                dtype=to_dtype(args.dtype),
-                token=args.hf_token,
-                trust_remote_code=True,
-            )
-        model = model.to(args.device)
+        processor = AutoProcessor.from_pretrained(
+            args.model_id,
+            token=args.hf_token,
+            trust_remote_code=args.trust_remote_code,
+        )
+        model = _load_model(
+            args.model_id,
+            dtype=to_dtype(args.dtype),
+            token=args.hf_token,
+            trust_remote_code=args.trust_remote_code,
+        ).to(args.device)
         model.eval()
 
-        backend = HFLLMBackend(model, tokenizer=getattr(processor, "tokenizer", None))
+        attribution_model = AttributionModel.from_model(
+            model=model,
+            tokenizer=getattr(processor, "tokenizer", None),
+            device=args.device,
+            dtype=to_dtype(args.dtype),
+        )
 
-        # Step 1: raw data (white image vs black image)
-        clean_image, corrupt_image = _build_clean_corrupt_images(image=None, image_size=args.image_size)
+        clean_image, corrupt_image = _build_clean_corrupt_images(args.image_size)
         question = "what is the color of the image?"
         clean_prompt = _build_prompt(processor, question)
         corrupt_prompt = _build_prompt(processor, question)
@@ -266,7 +286,6 @@ def main() -> None:
             raise ValueError("Processor tokenizer is required to resolve white/black token ids.")
         labels = _resolve_white_black_pair(tokenizer)
 
-        # Step 1 -> model input tensors via processor
         prepared_batch = _prepare_image_pair_batch(
             processor=processor,
             clean_prompt=clean_prompt,
@@ -274,8 +293,9 @@ def main() -> None:
             clean_image=clean_image,
             corrupt_image=corrupt_image,
             labels=labels,
-            device=backend.config.device,
+            device=attribution_model.backend.config.device,
         )
+
         write_model_input_summary(
             prepared_batch,
             output_dir / "model_input_summary.json",
@@ -284,8 +304,6 @@ def main() -> None:
                     "clean_image": "solid_white",
                     "corrupt_image": "solid_black",
                     "image_size": args.image_size,
-                    "clean_image_mode": clean_image.mode,
-                    "corrupt_image_mode": corrupt_image.mode,
                     "clean_prompt": clean_prompt,
                     "corrupt_prompt": corrupt_prompt,
                     "labels": labels.tolist(),
@@ -293,25 +311,26 @@ def main() -> None:
             },
         )
 
-        # Step 2: attribution
-        run = attribute_from_dataloader(
-            model=model,
-            backend=backend,
-            dataloader=[prepared_batch],
+        run = attribution_model.attribute(
+            batches=[prepared_batch],
             metric=_metric_white_black_logit_diff,
             method=args.method,
             quiet=args.quiet,
         )
-
-        # Step 3: visualization
         artifacts, graph_stats = export_graph_artifacts(run.graph, output_dir, topn=args.topn)
 
+        route = run.route_info
         result: Dict[str, Any] = {
             "modality": "image",
             "model_id": args.model_id,
             "method": args.method,
             "status": "pass",
             "seconds": time.time() - start,
+            "route_info": {
+                "adapter_name": route.adapter_name,
+                "arch_kind": route.arch_kind,
+                "language_trunk_path": route.language_trunk_path,
+            },
             "graph_stats": dataclass_dict(graph_stats),
             "artifacts": {
                 **dataclass_dict(artifacts),

@@ -57,7 +57,7 @@ def main() -> None:
         report["backend_init"] = {
             "status": "ok",
             "adapter_name": backend.adapter_name,
-            "backbone_path": backend.backbone_path,
+            "language_trunk_path": backend.language_trunk_path,
             "arch_kind": backend.arch_kind,
             "n_layers": backend.config.n_layers,
             "n_heads": backend.config.n_heads,
@@ -71,7 +71,7 @@ def main() -> None:
         report["backend_init"] = {
             "status": "error",
             "message": str(exc),
-            "backbone_path": "",
+            "language_trunk_path": "",
             "arch_kind": "",
             "resolution_summary": {
                 "selected": report.get("selected"),

@@ -22,8 +22,8 @@ from torch import Tensor
 class PreparedBatch:
     """Prepared clean/corrupt pair consumed by attribution/evaluation."""
 
-    clean_inputs: Dict[str, Tensor]
-    corrupt_inputs: Dict[str, Tensor]
+    clean_inputs: Dict[str, Any]
+    corrupt_inputs: Dict[str, Any]
     labels: Any
     input_lengths: Tensor
     meta: Optional[Dict[str, Any]] = None
@@ -46,16 +46,6 @@ class RawPairBatch:
     meta: Optional[Dict[str, Any]] = None
 
 
-@dataclass
-class DictPairBatch:
-    """Dict-style alias for dataloader output compatibility."""
-
-    clean: Any
-    corrupt: Any
-    labels: Any
-    meta: Optional[Dict[str, Any]] = None
-
-
 class PairBatchPreparer(Protocol):
     def prepare_batch(
         self,
@@ -68,18 +58,22 @@ class PairBatchPreparer(Protocol):
         ...
 
 
-BatchLike = Union[PreparedBatch, RawPairBatch, DictPairBatch, Mapping[str, Any], Tuple[Any, Any, Any], Tuple[Any, Any, Any, Any]]
+BatchLike = Union[PreparedBatch, RawPairBatch]
 
 
-def _sequence_shape(inputs: Dict[str, Tensor]) -> Tuple[int, int]:
+def _sequence_shape(inputs: Mapping[str, Any]) -> Tuple[int, int]:
     if "input_ids" in inputs:
         input_ids = inputs["input_ids"]
+        if not torch.is_tensor(input_ids):
+            raise ValueError("input_ids must be a tensor")
         if input_ids.ndim != 2:
             raise ValueError("input_ids must be rank-2 [batch, seq]")
         return int(input_ids.shape[0]), int(input_ids.shape[1])
 
     if "inputs_embeds" in inputs:
         inputs_embeds = inputs["inputs_embeds"]
+        if not torch.is_tensor(inputs_embeds):
+            raise ValueError("inputs_embeds must be a tensor")
         if inputs_embeds.ndim != 3:
             raise ValueError("inputs_embeds must be rank-3 [batch, seq, d_model]")
         return int(inputs_embeds.shape[0]), int(inputs_embeds.shape[1])
@@ -106,6 +100,8 @@ def validate_prepared_batch(batch: PreparedBatch) -> None:
         raise ValueError("attention_mask must be present on both clean and corrupt inputs")
 
     if clean_mask is not None:
+        if not torch.is_tensor(clean_mask) or not torch.is_tensor(corrupt_mask):
+            raise ValueError("attention_mask must be a tensor on both clean and corrupt inputs")
         if clean_mask.shape != corrupt_mask.shape:
             raise ValueError(
                 "attention_mask shape mismatch: "
@@ -260,7 +256,7 @@ def iter_prepared_batches(
         if pair_batch_preparer is None:
             raise TypeError(
                 "Raw clean/corrupt batches require a pair_batch_preparer. "
-                "Pass processor=... via API or provide your custom preparer via "
+                "Provide your custom preparer via "
                 "iter_prepared_batches(..., pair_batch_preparer=...)."
             )
         return pair_batch_preparer.prepare_batch(clean, corrupt, labels, meta=meta)
@@ -275,32 +271,7 @@ def iter_prepared_batches(
             yield _prepare_raw_pair(batch.clean, batch.corrupt, batch.labels, meta=batch.meta)
             continue
 
-        if isinstance(batch, DictPairBatch):
-            yield _prepare_raw_pair(batch.clean, batch.corrupt, batch.labels, meta=batch.meta)
-            continue
-
-        if isinstance(batch, Mapping):
-            required = {"clean", "corrupt", "labels"}
-            if required.issubset(batch.keys()):
-                yield _prepare_raw_pair(
-                    batch["clean"],
-                    batch["corrupt"],
-                    batch["labels"],
-                    meta=batch.get("meta"),
-                )
-                continue
-            raise TypeError(
-                "Mapping batches must include keys {'clean', 'corrupt', 'labels'} "
-                "(optional 'meta')."
-            )
-
-        if not isinstance(batch, tuple) or len(batch) not in (3, 4):
-            raise TypeError(
-                "Expected one of: PreparedBatch, RawPairBatch, dict(clean/corrupt/labels), "
-                "or tuple(clean, corrupt, labels[, meta])."
-            )
-
-        clean_data, corrupt_data, labels = batch[:3]
-        meta = batch[3] if len(batch) == 4 else None
-
-        yield _prepare_raw_pair(clean_data, corrupt_data, labels, meta=meta)
+        raise TypeError(
+            "Expected one of: PreparedBatch or RawPairBatch. "
+            "V2 no longer accepts dict/tuple dataloader entries."
+        )

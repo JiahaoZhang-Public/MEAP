@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Text attribution example for GPT-2.
+"""Text attribution example using AttributionModel + PreparedBatch.
 
-This example shows the full workflow with meap:
-1. Raw data -> tokenization -> model inputs (PreparedBatch)
-2. Attribution with EAP-family methods (default EAP)
-3. Graph visualization export (JSON + PNG)
+Workflow:
+1. Raw clean/corrupt text pair -> tokenizer -> PreparedBatch
+2. AttributionModel resolves language trunk and runs attribution
+3. Export graph JSON/PNG artifacts
 
 Run:
   python examples/text/gpt2.py --device cpu --dtype float32 --method EAP
@@ -13,7 +13,6 @@ Run:
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict
 from datetime import datetime
 import json
 from pathlib import Path
@@ -22,7 +21,7 @@ import time
 from typing import Any, Dict
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoTokenizer
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
@@ -38,12 +37,13 @@ from examples.common import (  # noqa: E402
     write_model_input_summary,
     write_run_summary,
 )
-from meap import HFLLMBackend, PreparedBatch, attribute_from_dataloader  # noqa: E402
+
+from meap import AttributionModel, PreparedBatch  # noqa: E402
 from meap.batch import validate_prepared_batch  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="GPT-2 text attribution example with graph visualization.")
+    parser = argparse.ArgumentParser(description="GPT-2 text attribution example.")
     parser.add_argument("--model-id", default="gpt2")
     parser.add_argument(
         "--method",
@@ -52,8 +52,14 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--dtype", default="float32", choices=["float16", "bfloat16", "float32"])
+    parser.add_argument("--max-length", type=int, default=128)
     parser.add_argument("--topn", type=int, default=200)
     parser.add_argument("--hf-token", default=None)
+    parser.add_argument(
+        "--trust-remote-code",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
     parser.add_argument("--run-name", default="")
     parser.add_argument("--quiet", action="store_true")
     return parser.parse_args()
@@ -66,9 +72,29 @@ def _pad_2d(tensor: torch.Tensor, target_len: int, pad_value: int) -> torch.Tens
     return torch.nn.functional.pad(tensor, (0, pad), value=pad_value)
 
 
-def prepare_text_batch(tokenizer: Any, clean_text: str, corrupt_text: str, labels: torch.Tensor) -> PreparedBatch:
-    clean = tokenizer([clean_text], return_tensors="pt", padding=True)
-    corrupt = tokenizer([corrupt_text], return_tensors="pt", padding=True)
+def prepare_text_batch(
+    tokenizer: Any,
+    *,
+    clean_text: str,
+    corrupt_text: str,
+    labels: torch.Tensor,
+    device: torch.device,
+    max_length: int,
+) -> PreparedBatch:
+    clean = tokenizer(
+        [clean_text],
+        return_tensors="pt",
+        padding=True,
+        truncation=True,
+        max_length=max_length,
+    )
+    corrupt = tokenizer(
+        [corrupt_text],
+        return_tensors="pt",
+        padding=True,
+        truncation=True,
+        max_length=max_length,
+    )
 
     pad_token_id = tokenizer.pad_token_id
     if pad_token_id is None:
@@ -77,16 +103,16 @@ def prepare_text_batch(tokenizer: Any, clean_text: str, corrupt_text: str, label
         pad_token_id = 0
 
     target_len = max(int(clean["input_ids"].shape[1]), int(corrupt["input_ids"].shape[1]))
-    clean_ids = _pad_2d(clean["input_ids"], target_len, int(pad_token_id))
-    corrupt_ids = _pad_2d(corrupt["input_ids"], target_len, int(pad_token_id))
-    clean_mask = _pad_2d(clean["attention_mask"], target_len, 0)
-    corrupt_mask = _pad_2d(corrupt["attention_mask"], target_len, 0)
+    clean_ids = _pad_2d(clean["input_ids"], target_len, int(pad_token_id)).to(device)
+    corrupt_ids = _pad_2d(corrupt["input_ids"], target_len, int(pad_token_id)).to(device)
+    clean_mask = _pad_2d(clean["attention_mask"], target_len, 0).to(device)
+    corrupt_mask = _pad_2d(corrupt["attention_mask"], target_len, 0).to(device)
 
     shared_mask = torch.minimum(clean_mask, corrupt_mask)
     batch = PreparedBatch(
         clean_inputs={"input_ids": clean_ids, "attention_mask": shared_mask},
         corrupt_inputs={"input_ids": corrupt_ids, "attention_mask": shared_mask.clone()},
-        labels=labels,
+        labels=labels.to(device=device, dtype=torch.long),
         input_lengths=shared_mask.sum(dim=-1),
     )
     validate_prepared_batch(batch)
@@ -103,32 +129,50 @@ def build_output_dir(run_name: str) -> Path:
     return out
 
 
+def _model_kwargs(args: argparse.Namespace) -> Dict[str, Any]:
+    kwargs: Dict[str, Any] = {
+        "dtype": to_dtype(args.dtype),
+        "trust_remote_code": args.trust_remote_code,
+    }
+    if args.hf_token:
+        kwargs["token"] = args.hf_token
+    return kwargs
+
+
 def main() -> None:
     args = parse_args()
     output_dir = build_output_dir(args.run_name)
     start = time.time()
 
     try:
-        tokenizer = AutoTokenizer.from_pretrained(args.model_id, token=args.hf_token)
+        tokenizer = AutoTokenizer.from_pretrained(
+            args.model_id,
+            token=args.hf_token,
+            trust_remote_code=args.trust_remote_code,
+        )
         if tokenizer.pad_token_id is None:
             tokenizer.pad_token = tokenizer.eos_token
 
-        model = AutoModelForCausalLM.from_pretrained(
+        attribution_model = AttributionModel.from_pretrained(
             args.model_id,
-            dtype=to_dtype(args.dtype),
-            token=args.hf_token,
-        ).to(args.device)
-        model.eval()
+            device=args.device,
+            dtype=args.dtype,
+            model_kwargs=_model_kwargs(args),
+            cache=False,
+        )
 
-        backend = HFLLMBackend(model, tokenizer=tokenizer)
-
-        # Step 1: raw clean/corrupt text pair
         clean_text = "The capital of France is"
         corrupt_text = "The capital of Germany is"
+        labels = resolve_target_pair(tokenizer, attribution_model.model)
 
-        # Step 1 -> model input tokens
-        labels = resolve_target_pair(tokenizer, model)
-        prepared_batch = prepare_text_batch(tokenizer, clean_text, corrupt_text, labels)
+        prepared_batch = prepare_text_batch(
+            tokenizer,
+            clean_text=clean_text,
+            corrupt_text=corrupt_text,
+            labels=labels,
+            device=attribution_model.backend.config.device,
+            max_length=args.max_length,
+        )
         write_model_input_summary(
             prepared_batch,
             output_dir / "model_input_summary.json",
@@ -140,25 +184,26 @@ def main() -> None:
             },
         )
 
-        # Step 2: attribution
-        run = attribute_from_dataloader(
-            model=model,
-            backend=backend,
-            dataloader=[prepared_batch],
+        run = attribution_model.attribute(
+            batches=[prepared_batch],
             metric=metric_logit_diff,
             method=args.method,
             quiet=args.quiet,
         )
-
-        # Step 3: graph visualization
         artifacts, graph_stats = export_graph_artifacts(run.graph, output_dir, topn=args.topn)
 
+        route = run.route_info
         result: Dict[str, Any] = {
             "modality": "text",
             "model_id": args.model_id,
             "method": args.method,
             "status": "pass",
             "seconds": time.time() - start,
+            "route_info": {
+                "adapter_name": route.adapter_name,
+                "arch_kind": route.arch_kind,
+                "language_trunk_path": route.language_trunk_path,
+            },
             "graph_stats": dataclass_dict(graph_stats),
             "artifacts": {
                 **dataclass_dict(artifacts),

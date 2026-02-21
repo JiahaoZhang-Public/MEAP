@@ -1,11 +1,11 @@
-# Release Process (v1.0.0)
+# Release Process (v1.x)
 
 This document defines the scripted release flow for `meap`.
 
 ## Release Stages
 
-1. `v1.0.0-rc1` (pre-release candidate)
-2. `v1.0.0` (stable release)
+1. `vX.Y.Z-rc1` (pre-release candidate, optional)
+2. `vX.Y.Z` (stable release)
 
 ## Step-by-Step
 
@@ -19,7 +19,7 @@ This document defines the scripted release flow for `meap`.
 ### 2) Run release gate
 
 ```bash
-python scripts/release/release.py set-version --version 1.0.0rc1
+python scripts/release/release.py set-version --version X.Y.Zrc1
 python scripts/release/release.py gate --clean-dist
 ```
 
@@ -42,7 +42,7 @@ Or use GitHub Actions manual workflow:
 ### 4) Draft release notes
 
 ```bash
-python scripts/release/release.py notes --version v1.0.0-rc1
+python scripts/release/release.py notes --version vX.Y.Z-rc1
 ```
 
 Template:
@@ -51,20 +51,20 @@ Template:
 ### 5) Tag
 
 ```bash
-python scripts/release/release.py tag --version v1.0.0-rc1 --push
+python scripts/release/release.py tag --version vX.Y.Z-rc1 --push
 ```
 
 After RC validation, repeat for stable:
 
 ```bash
-python scripts/release/release.py set-version --version 1.0.0
-python scripts/release/release.py tag --version v1.0.0 --push
+python scripts/release/release.py set-version --version X.Y.Z
+python scripts/release/release.py tag --version vX.Y.Z --push
 ```
 
 ## Post-Release Documentation Sync
 
-After final `v1.0.0`:
+After final `vX.Y.Z`:
 - verify install command in `README.md`
-- verify compatibility versions in `docs/docs/COMPATIBILITY_MATRIX.md`
+- verify API/runtime versions in `pyproject.toml` and `docs/docs/API_STABILITY.md`
 - verify known limits in `README.md` and `docs/docs/SUPPORTED_MODELS.md`
 - record release highlights in `CHANGELOG.md`

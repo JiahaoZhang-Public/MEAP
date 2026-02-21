@@ -11,8 +11,15 @@ import sys
 import time
 from typing import Any, Dict, List, Optional
 
+from meap import list_official_models
+
 REPORT_TYPE = "stage_matrix"
 SCHEMA_VERSION = "1.0.0"
+_OFFICIAL_MODELS = list_official_models()
+_DEFAULT_TEXT_MODELS = ",".join([row["model_id"] for row in _OFFICIAL_MODELS if row["modality"] == "text"])
+_DEFAULT_MULTIMODAL_MODELS = ",".join(
+    [row["model_id"] for row in _OFFICIAL_MODELS if row["modality"] == "multimodal"]
+)
 
 
 def _has_cuda() -> bool:
@@ -110,11 +117,11 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument(
         "--text-models",
-        default="gpt2,Qwen/Qwen2-0.5B,facebook/opt-125m,TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+        default=_DEFAULT_TEXT_MODELS,
     )
     parser.add_argument(
         "--multimodal-models",
-        default="Qwen/Qwen2-VL-2B,llava-hf/llava-1.5-7b-hf,HuggingFaceTB/SmolVLM-Instruct,Qwen/Qwen2-Audio-7B",
+        default=_DEFAULT_MULTIMODAL_MODELS,
     )
     parser.add_argument(
         "--parity-methods",
@@ -374,7 +381,7 @@ def main() -> None:
                         error_message=str(row.get("error_message", "")),
                         details={
                             "adapter_name": row.get("adapter_name", ""),
-                            "backbone_path": row.get("backbone_path", ""),
+                            "language_trunk_path": row.get("language_trunk_path", ""),
                             "arch_kind": row.get("arch_kind", ""),
                             "resolution_error_hint": row.get("resolution_error_hint", ""),
                             "graph_stats": row.get("graph_stats"),

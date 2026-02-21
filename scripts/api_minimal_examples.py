@@ -26,9 +26,9 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from meap import (  # noqa: E402
-    HFLLMBackend,
+    AttributionModel,
+    HFProcessorAdapter,
     PreparedBatch,
-    attribute_from_dataloader,
 )
 from meap.batch import PairBatchPreparer, validate_prepared_batch  # noqa: E402
 
@@ -183,17 +183,15 @@ def _run_text_gpt2(args: argparse.Namespace) -> Dict[str, Any]:
         args.device
     )
     model.eval()
-    backend = HFLLMBackend(model, tokenizer=tokenizer)
+    attr_model = AttributionModel.from_model(model, tokenizer=tokenizer, device=args.device, dtype=_dtype(args.dtype))
 
     batch = _text_prepared_batch(
         tokenizer,
         clean_text="The capital of France is",
         corrupt_text="The capital of Germany is",
     )
-    result = attribute_from_dataloader(
-        model=model,
-        backend=backend,
-        dataloader=[batch],
+    result = attr_model.attribute(
+        batches=[batch],
         metric=_metric,
         method=args.method,
     )
@@ -210,7 +208,7 @@ def _run_text_qwen2(args: argparse.Namespace) -> Dict[str, Any]:
         args.device
     )
     model.eval()
-    backend = HFLLMBackend(model, tokenizer=tokenizer)
+    attr_model = AttributionModel.from_model(model, tokenizer=tokenizer, device=args.device, dtype=_dtype(args.dtype))
 
     clean_prompt = tokenizer.apply_chat_template(
         [{"role": "user", "content": "Who are you?"}],
@@ -223,10 +221,8 @@ def _run_text_qwen2(args: argparse.Namespace) -> Dict[str, Any]:
         add_generation_prompt=True,
     )
     batch = _text_prepared_batch(tokenizer, clean_prompt, corrupt_prompt)
-    result = attribute_from_dataloader(
-        model=model,
-        backend=backend,
-        dataloader=[batch],
+    result = attr_model.attribute(
+        batches=[batch],
         metric=_metric,
         method=args.method,
     )
@@ -269,27 +265,30 @@ def _run_image_qwen2_vl(args: argparse.Namespace) -> Dict[str, Any]:
         trust_remote_code=True,
     ).to(args.device)
     model.eval()
-    backend = HFLLMBackend(model, tokenizer=getattr(processor, "tokenizer", None))
+    attr_model = AttributionModel.from_model(
+        model,
+        tokenizer=getattr(processor, "tokenizer", None),
+        device=args.device,
+        dtype=_dtype(args.dtype),
+    )
 
     image = np.zeros((224, 224, 3), dtype=np.uint8)
     image[48:176, 48:176, :] = 255
     clean_prompt = _qwen2_vl_prompt(processor, "Is the square white?")
     corrupt_prompt = _qwen2_vl_prompt(processor, "Is the square black?")
 
-    dataloader = [
-        {
-            "clean": [{"text": clean_prompt, "images": image}],
-            "corrupt": [{"text": corrupt_prompt, "images": image}],
-            "labels": torch.tensor([0]),
-        }
-    ]
-    # No implicit truncation here; if needed, pass truncation/max_length explicitly in processor_kwargs.
-    result = attribute_from_dataloader(
-        model=model,
-        backend=backend,
-        dataloader=dataloader,
+    preparer = HFProcessorAdapter(
         processor=processor,
         processor_kwargs={"padding": True},
+        device=attr_model.backend.config.device,
+    )
+    batch = preparer.prepare_batch(
+        clean_samples=[{"text": clean_prompt, "images": image}],
+        corrupt_samples=[{"text": corrupt_prompt, "images": image}],
+        labels=torch.tensor([0]),
+    )
+    result = attr_model.attribute(
+        batches=[batch],
         metric=_metric,
         method=args.method,
     )
@@ -354,10 +353,10 @@ def _run_audio_ultravox(args: argparse.Namespace) -> Dict[str, Any]:
     ).to(args.device)
     model.eval()
 
-    # Ultravox has custom preprocessing; we use a custom pair_batch_preparer entrypoint.
+    # Ultravox has custom preprocessing; build PreparedBatch explicitly.
     infer_pipe = pipeline(model=model_id, trust_remote_code=True, token=args.hf_token)
-    backend = HFLLMBackend(model)
-    pair_preparer = UltravoxPairPreparer(infer_pipe=infer_pipe, device=backend.config.device)
+    attr_model = AttributionModel.from_model(model, device=args.device, dtype=_dtype(args.dtype))
+    pair_preparer = UltravoxPairPreparer(infer_pipe=infer_pipe, device=attr_model.backend.config.device)
     audio_placeholder = getattr(getattr(infer_pipe, "processor", None), "audio_placeholder", ULTRAVOX_AUDIO_PLACEHOLDER)
     clean_user_prompt = _normalize_ultravox_user_prompt(prompt, audio_placeholder=audio_placeholder)
     corrupt_user_prompt = _normalize_ultravox_user_prompt(
@@ -372,18 +371,13 @@ def _run_audio_ultravox(args: argparse.Namespace) -> Dict[str, Any]:
         {"role": "system", "content": "You are concise."},
         {"role": "user", "content": corrupt_user_prompt},
     ]
-    dataloader = [
-        {
-            "clean": [{"audio": audio, "sampling_rate": sr, "turns": turns_clean}],
-            "corrupt": [{"audio": audio, "sampling_rate": sr, "turns": turns_corrupt}],
-            "labels": torch.tensor([0]),
-        }
-    ]
-    result = attribute_from_dataloader(
-        model=model,
-        backend=backend,
-        dataloader=dataloader,
-        pair_batch_preparer=pair_preparer,
+    batch = pair_preparer.prepare_batch(
+        clean_samples=[{"audio": audio, "sampling_rate": sr, "turns": turns_clean}],
+        corrupt_samples=[{"audio": audio, "sampling_rate": sr, "turns": turns_corrupt}],
+        labels=torch.tensor([0]),
+    )
+    result = attr_model.attribute(
+        batches=[batch],
         metric=_metric,
         method=args.method,
     )

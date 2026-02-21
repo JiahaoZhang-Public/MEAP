@@ -44,7 +44,7 @@ def test_stage_matrix_main_writes_unified_report(monkeypatch, tmp_path):
                         "error_type": "",
                         "error_message": "",
                         "adapter_name": "llama_like",
-                        "backbone_path": "model.language_model",
+                        "language_trunk_path": "model.language_model",
                         "arch_kind": "llama_like",
                         "resolution_error_hint": "",
                         "graph_stats": {"n_forward": 1, "n_backward": 1, "n_edges": 1},
