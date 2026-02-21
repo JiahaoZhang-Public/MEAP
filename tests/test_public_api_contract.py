@@ -12,7 +12,11 @@ utils_module = importlib.import_module("meap.utils")
 def test_stable_public_api_symbols_are_exported():
     expected = {
         "AttributionRunResult",
+        "CircuitEdgeSummary",
+        "CircuitRunResult",
+        "TaskSpec",
         "attribute_from_dataloader",
+        "discover_circuit",
         "evaluate_graph_from_dataloader",
         "evaluate_baseline_from_dataloader",
         "HFLLMBackend",

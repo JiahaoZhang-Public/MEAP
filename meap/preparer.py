@@ -10,8 +10,8 @@ from .batch import PreparedBatch, validate_prepared_batch
 from .config import DEFAULT_BACKBONE_MODEL_ID, DEFAULT_MULTIMODAL_MODEL_ID
 
 
-def _batchfeature_to_tensors(batch_feature) -> Dict[str, Tensor]:
-    return {k: v for k, v in batch_feature.items() if isinstance(v, Tensor)}
+def _batchfeature_to_inputs(batch_feature) -> Dict[str, Any]:
+    return {k: v for k, v in batch_feature.items() if v is not None}
 
 
 def _pad_2d(tensor: Tensor, target_length: int, pad_value: int) -> Tensor:
@@ -22,12 +22,14 @@ def _pad_2d(tensor: Tensor, target_length: int, pad_value: int) -> Tensor:
 
 
 def _pad_pair_inputs(
-    clean_inputs: Dict[str, Tensor],
-    corrupt_inputs: Dict[str, Tensor],
+    clean_inputs: Dict[str, Any],
+    corrupt_inputs: Dict[str, Any],
     *,
     pad_token_id: int,
 ) -> None:
     if "input_ids" not in clean_inputs or "input_ids" not in corrupt_inputs:
+        return
+    if not torch.is_tensor(clean_inputs["input_ids"]) or not torch.is_tensor(corrupt_inputs["input_ids"]):
         return
 
     target_len = max(int(clean_inputs["input_ids"].shape[1]), int(corrupt_inputs["input_ids"].shape[1]))
@@ -117,17 +119,19 @@ def _modality_token_count_per_row(input_ids: Tensor, token_ids: Sequence[int]) -
     return [int(x) for x in is_modality.sum(dim=-1).tolist()]
 
 
-def _feature_present(inputs: Dict[str, Tensor], keys: Sequence[str]) -> bool:
+def _feature_present(inputs: Dict[str, Any], keys: Sequence[str]) -> bool:
     return any(key in inputs for key in keys)
 
 
 def _precheck_modality_placeholders(
-    clean_inputs: Dict[str, Tensor],
-    corrupt_inputs: Dict[str, Tensor],
+    clean_inputs: Dict[str, Any],
+    corrupt_inputs: Dict[str, Any],
     *,
     processor,
 ) -> Dict[str, Dict[str, list[int]]]:
     if "input_ids" not in clean_inputs or "input_ids" not in corrupt_inputs:
+        return {}
+    if not torch.is_tensor(clean_inputs["input_ids"]) or not torch.is_tensor(corrupt_inputs["input_ids"]):
         return {}
 
     token_ids = _find_modality_token_ids(processor)
@@ -253,24 +257,38 @@ class HFProcessorAdapter:
         clean_feature = self.processor(**clean_inputs_for_processor)
         corrupt_feature = self.processor(**corrupt_inputs_for_processor)
 
-        clean_inputs = _batchfeature_to_tensors(clean_feature)
-        corrupt_inputs = _batchfeature_to_tensors(corrupt_feature)
+        clean_inputs = _batchfeature_to_inputs(clean_feature)
+        corrupt_inputs = _batchfeature_to_inputs(corrupt_feature)
 
         pad_token_id = _resolve_pad_token_id(self.processor)
         _pad_pair_inputs(clean_inputs, corrupt_inputs, pad_token_id=pad_token_id)
 
-        if "attention_mask" not in clean_inputs and "input_ids" in clean_inputs:
+        if (
+            "attention_mask" not in clean_inputs
+            and "input_ids" in clean_inputs
+            and torch.is_tensor(clean_inputs["input_ids"])
+        ):
             clean_inputs["attention_mask"] = (clean_inputs["input_ids"] != pad_token_id).long()
-        if "attention_mask" not in corrupt_inputs and "input_ids" in corrupt_inputs:
+        if (
+            "attention_mask" not in corrupt_inputs
+            and "input_ids" in corrupt_inputs
+            and torch.is_tensor(corrupt_inputs["input_ids"])
+        ):
             corrupt_inputs["attention_mask"] = (corrupt_inputs["input_ids"] != pad_token_id).long()
 
         target_device = device if device is not None else self.device
         if target_device is not None:
-            clean_inputs = {k: v.to(target_device) for k, v in clean_inputs.items()}
-            corrupt_inputs = {k: v.to(target_device) for k, v in corrupt_inputs.items()}
+            clean_inputs = {
+                k: (v.to(target_device) if torch.is_tensor(v) else v) for k, v in clean_inputs.items()
+            }
+            corrupt_inputs = {
+                k: (v.to(target_device) if torch.is_tensor(v) else v) for k, v in corrupt_inputs.items()
+            }
 
         if "attention_mask" not in clean_inputs:
             raise ValueError("Prepared inputs must include attention_mask")
+        if not torch.is_tensor(clean_inputs["attention_mask"]):
+            raise ValueError("attention_mask in prepared inputs must be a tensor")
 
         meta_dict: Dict[str, Any] = dict(meta or {})
         placeholder_counts = _precheck_modality_placeholders(
@@ -281,7 +299,13 @@ class HFProcessorAdapter:
         if len(placeholder_counts) > 0:
             meta_dict.setdefault("modality_token_counts", placeholder_counts)
         image_token_id = _find_image_token_id(self.processor)
-        if image_token_id is not None and "input_ids" in clean_inputs and "input_ids" in corrupt_inputs:
+        if (
+            image_token_id is not None
+            and "input_ids" in clean_inputs
+            and "input_ids" in corrupt_inputs
+            and torch.is_tensor(clean_inputs["input_ids"])
+            and torch.is_tensor(corrupt_inputs["input_ids"])
+        ):
             meta_dict.setdefault("clean_modality_spans", _image_token_spans(clean_inputs["input_ids"], image_token_id))
             meta_dict.setdefault(
                 "corrupt_modality_spans",

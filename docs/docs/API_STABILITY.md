@@ -9,7 +9,11 @@ Primary module:
 
 Stable symbols:
 - `AttributionRunResult`
+- `TaskSpec`
+- `CircuitEdgeSummary`
+- `CircuitRunResult`
 - `attribute_from_dataloader`
+- `discover_circuit`
 - `evaluate_graph_from_dataloader`
 - `evaluate_baseline_from_dataloader`
 

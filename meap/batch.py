@@ -22,8 +22,8 @@ from torch import Tensor
 class PreparedBatch:
     """Prepared clean/corrupt pair consumed by attribution/evaluation."""
 
-    clean_inputs: Dict[str, Tensor]
-    corrupt_inputs: Dict[str, Tensor]
+    clean_inputs: Dict[str, Any]
+    corrupt_inputs: Dict[str, Any]
     labels: Any
     input_lengths: Tensor
     meta: Optional[Dict[str, Any]] = None
@@ -71,15 +71,19 @@ class PairBatchPreparer(Protocol):
 BatchLike = Union[PreparedBatch, RawPairBatch, DictPairBatch, Mapping[str, Any], Tuple[Any, Any, Any], Tuple[Any, Any, Any, Any]]
 
 
-def _sequence_shape(inputs: Dict[str, Tensor]) -> Tuple[int, int]:
+def _sequence_shape(inputs: Mapping[str, Any]) -> Tuple[int, int]:
     if "input_ids" in inputs:
         input_ids = inputs["input_ids"]
+        if not torch.is_tensor(input_ids):
+            raise ValueError("input_ids must be a tensor")
         if input_ids.ndim != 2:
             raise ValueError("input_ids must be rank-2 [batch, seq]")
         return int(input_ids.shape[0]), int(input_ids.shape[1])
 
     if "inputs_embeds" in inputs:
         inputs_embeds = inputs["inputs_embeds"]
+        if not torch.is_tensor(inputs_embeds):
+            raise ValueError("inputs_embeds must be a tensor")
         if inputs_embeds.ndim != 3:
             raise ValueError("inputs_embeds must be rank-3 [batch, seq, d_model]")
         return int(inputs_embeds.shape[0]), int(inputs_embeds.shape[1])
@@ -106,6 +110,8 @@ def validate_prepared_batch(batch: PreparedBatch) -> None:
         raise ValueError("attention_mask must be present on both clean and corrupt inputs")
 
     if clean_mask is not None:
+        if not torch.is_tensor(clean_mask) or not torch.is_tensor(corrupt_mask):
+            raise ValueError("attention_mask must be a tensor on both clean and corrupt inputs")
         if clean_mask.shape != corrupt_mask.shape:
             raise ValueError(
                 "attention_mask shape mismatch: "

@@ -14,7 +14,11 @@ import warnings
 
 from .api import (
     AttributionRunResult,
+    CircuitEdgeSummary,
+    CircuitRunResult,
+    TaskSpec,
     attribute_from_dataloader,
+    discover_circuit,
     evaluate_baseline_from_dataloader,
     evaluate_graph_from_dataloader,
 )
@@ -145,6 +149,8 @@ def prepare_llava_token_pair_batch(*args: Any, **kwargs: Any):
 
 __all__ = [
     "AttributionRunResult",
+    "CircuitEdgeSummary",
+    "CircuitRunResult",
     "DEFAULT_BACKBONE_MODEL_ID",
     "DEFAULT_MULTIMODAL_MODEL_ID",
     "Graph",
@@ -157,8 +163,10 @@ __all__ = [
     "BackendConfig",
     "BackendRunInputs",
     "ArchitectureAdapter",
+    "TaskSpec",
     "attribute",
     "attribute_from_dataloader",
+    "discover_circuit",
     "evaluate_graph",
     "evaluate_graph_from_dataloader",
     "evaluate_baseline",

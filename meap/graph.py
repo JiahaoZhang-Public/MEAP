@@ -794,6 +794,7 @@ class Graph:
     def from_pt(cls, pt_path: str) -> 'Graph':
         """
         Load a graph object from a pytorch-serialized file.
+        Warning: this uses torch.load (pickle-based); do not load untrusted files.
         The file should contain a dict with the following items -
             1. 'cfg': Configuration dictionary, containing similar values to a TLens configuration object.
             2. 'src_nodes': Dict[str, bool] which maps a node name (i.e. 'm11' or 'a0.h11') to a boolean value, indicating if the node is part of the circuit.
@@ -802,7 +803,11 @@ class Graph:
             5. 'edges_in_graph': torch.tensor[n_src_nodes, n_dst_nodes], where each value in (src, dst) represents if the edge is in the graph or not.
             6. 'neurons': [Optional] torch.tensor[n_src_nodes, d_model], where each value in (src, neuron) indicates whether the neuron is in the graph or not
         """
-        d = torch.load(pt_path)
+        try:
+            d = torch.load(pt_path, map_location="cpu", weights_only=False)
+        except TypeError:
+            # weights_only was introduced in newer PyTorch versions.
+            d = torch.load(pt_path, map_location="cpu")
         required_keys = ['cfg', 'src_nodes', 'dst_nodes', 'edges_scores', 'edges_in_graph', 'nodes_in_graph']
         assert all([k in d.keys() for k in required_keys]), f"Bad torch circuit file format. Found keys - {d.keys()}, missing keys - {set(required_keys) - set(d.keys())}"
         assert d['edges_scores'].shape == d['edges_in_graph'].shape, "Bad edges array shape"

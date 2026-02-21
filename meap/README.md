@@ -29,6 +29,10 @@ Use these as stable entrypoints:
 
 - High-level API (`meap.api`):
   - `AttributionRunResult`
+  - `TaskSpec`
+  - `CircuitEdgeSummary`
+  - `CircuitRunResult`
+  - `discover_circuit`
   - `attribute_from_dataloader`
   - `evaluate_graph_from_dataloader`
   - `evaluate_baseline_from_dataloader`
@@ -176,6 +180,55 @@ the per-batch step normalization behavior from upstream `vendor/eap-ig`.
   `edge_count > --max-exact-edges` and report an explicit skip reason.
 
 ## Minimal Usage
+
+### One-Shot HF Entry (Recommended)
+
+Use `discover_circuit` when you want model loading + processor + attribution orchestration in one call.
+
+```python
+from meap.api import discover_circuit
+
+result = discover_circuit(
+    model_id_or_path=\"openai-community/gpt2\",  # HF hub id or local model directory
+    clean_samples={\"text\": [\"The capital of France is\"]},
+    corrupt_samples={\"text\": [\"The capital of Germany is\"]},
+    task=\"next_token\",
+    labels=[357],  # target token id(s) or {'target_token_ids': ..., 'target_positions': ...}
+    method=\"EAP\",
+    top_k=20,
+)
+
+print(result.backend_info)
+print(result.top_edges[:3])
+```
+
+Local path example:
+
+```python
+result = discover_circuit(
+    model_id_or_path=\"/path/to/local/hf/model\",
+    clean_samples={\"text\": [\"Question: 2+2=\"]},
+    corrupt_samples={\"text\": [\"Question: 2+3=\"]},
+    task=\"next_token\",
+    labels=[16],
+)
+```
+
+Error diagnostics example:
+
+```python
+try:
+    discover_circuit(
+        model_id_or_path=\"/path/to/unsupported/model\",
+        clean_samples={\"text\": [\"hello\"]},
+        corrupt_samples={\"text\": [\"world\"]},
+        task=\"next_token\",
+        labels=[1],
+    )
+except ValueError as exc:
+    # Includes candidate backbones, selection_error, and original backend error.
+    print(exc)
+```
 
 ### A) Prebuilt `PreparedBatch`
 

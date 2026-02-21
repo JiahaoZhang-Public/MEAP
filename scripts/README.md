@@ -61,6 +61,13 @@ python scripts/real_attribution_modalities.py \
   --output-dir reports/real_attribution
 ```
 
+8. `scripts/discover_circuit_minimal.py`
+- Purpose: one-shot `discover_circuit` demo with HF model id or local path.
+- Typical use:
+```bash
+python scripts/discover_circuit_minimal.py --model-ref openai-community/gpt2 --task next_token --method EAP
+```
+
 For per-model, per-modality walkthrough scripts, use:
 - `examples/text/gpt2.py`
 - `examples/image/Qwen2-VL-2B.py`

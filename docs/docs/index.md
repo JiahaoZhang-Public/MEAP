@@ -9,6 +9,9 @@ This documentation is organized by **what a new user should read first**.
 1. Package quickstart:
 - `README.md` (repository root)
 
+One-shot entrypoint for HF model id / local path:
+- `discover_circuit(...)` in `meap.api`
+
 2. Stable API contract:
 - `docs/docs/API_STABILITY.md`
 
