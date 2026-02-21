@@ -11,9 +11,13 @@ utils_module = importlib.import_module("meap.utils")
 
 def test_stable_public_api_symbols_are_exported():
     expected = {
+        "AttributionModel",
+        "AttributionResult",
         "AttributionRunResult",
         "CircuitEdgeSummary",
         "CircuitRunResult",
+        "PreparedInputLike",
+        "RouteInfo",
         "TaskSpec",
         "attribute_from_dataloader",
         "discover_circuit",

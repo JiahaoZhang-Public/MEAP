@@ -121,16 +121,17 @@ def test_discover_circuit_runs_with_tensor_pair_and_topk_sorted(monkeypatch):
     corrupt_ids = torch.tensor([[1, 2, 9, 4]], dtype=torch.long)
     mask = torch.ones_like(clean_ids)
 
-    result = discover_circuit(
-        model_id_or_path="dummy",
-        clean_samples={"input_ids": clean_ids, "attention_mask": mask},
-        corrupt_samples={"input_ids": corrupt_ids, "attention_mask": mask.clone()},
-        task="next_token",
-        labels=torch.tensor([4]),
-        method="EAP",
-        top_k=5,
-        cache=False,
-    )
+    with pytest.warns(DeprecationWarning, match="AttributionModel.from_pretrained"):
+        result = discover_circuit(
+            model_id_or_path="dummy",
+            clean_samples={"input_ids": clean_ids, "attention_mask": mask},
+            corrupt_samples={"input_ids": corrupt_ids, "attention_mask": mask.clone()},
+            task="next_token",
+            labels=torch.tensor([4]),
+            method="EAP",
+            top_k=5,
+            cache=False,
+        )
 
     assert result.scores.shape == (result.graph.n_forward, result.graph.n_backward)
     assert len(result.top_edges) == 5

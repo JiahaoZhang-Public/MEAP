@@ -28,12 +28,17 @@ pip install -e ".[dev,multimodal,viz,docs]"
 Use these as stable entrypoints:
 
 - High-level API (`meap.api`):
+  - `AttributionModel` (primary)
+  - `AttributionResult`
+  - `RouteInfo`
+  - `PreparedInputLike`
   - `AttributionRunResult`
   - `TaskSpec`
   - `CircuitEdgeSummary`
   - `CircuitRunResult`
-  - `discover_circuit`
-  - `attribute_from_dataloader`
+  - compatibility wrappers (deprecated):
+    - `discover_circuit`
+    - `attribute_from_dataloader`
   - `evaluate_graph_from_dataloader`
   - `evaluate_baseline_from_dataloader`
 - Core public objects:
@@ -92,11 +97,22 @@ Migration:
 
 ## Input Contract
 
-### Preferred Mode A: user provides `PreparedBatch`
+### Primary mode: prepared-input-first via `AttributionModel`
 
-Your dataloader yields `PreparedBatch` objects directly.
+Core API accepts:
+- `PreparedBatch`
+- nested prepared mapping with `clean_inputs` + `corrupt_inputs` (+ optional labels/lengths/meta)
 
-### Mode B: user provides raw clean/corrupt + explicit preparer
+Core API does not accept:
+- raw `clean_samples`/`corrupt_samples`
+- direct `processor=...`
+- `pair_batch_preparer=...`
+
+### Compatibility Mode A: user provides `PreparedBatch`
+
+Your dataloader yields `PreparedBatch` objects directly (deprecated wrapper lane).
+
+### Compatibility Mode B: user provides raw clean/corrupt + explicit preparer
 
 Your dataloader yields `RawPairBatch` entries and you pass `pair_batch_preparer=...`
 (for example `HFProcessorAdapter(processor=...)`).
@@ -137,10 +153,15 @@ Validation is enforced by `validate_prepared_batch` in `batch.py`.
 - require explicit `backend=...`,
 - no implicit sequence truncation; `max_length` is not applied by API,
 - truncation should be performed inside your processor/preparer.
+- `attribute_from_dataloader` is deprecated and kept as compatibility wrapper.
 
 `discover_circuit(...)`:
 - recommended one-shot Lane A for model-id/path driven workflow,
 - performs HF route selection (automatic or explicit via `adapter_name` + `language_trunk_path`).
+- deprecated and kept as compatibility wrapper.
+
+`AttributionModel`:
+- primary object API for model route resolution + prepared-input attribution.
 
 ## Backend Architecture Inference
 

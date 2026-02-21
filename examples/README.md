@@ -43,6 +43,13 @@ python examples/text/gpt2.py --device cpu --dtype float32 --method EAP --input-m
 Output folder:
 - `examples/text/outputs/<run_name_or_timestamp>/`
 
+Minimal prepared-input-first API example:
+- Script: `examples/text/attribution_model_prepared.py`
+
+```bash
+python examples/text/attribution_model_prepared.py --device cpu --dtype float32 --method smoke
+```
+
 ## Image
 
 Script: `examples/image/Qwen2-VL-2B.py`

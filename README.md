@@ -55,6 +55,10 @@ python scripts/api_minimal_examples.py \
 
 Stable high-level API lives in `meap.api`.
 
+- `AttributionModel` (primary)
+- `AttributionResult`
+- `RouteInfo`
+- `PreparedInputLike`
 - `attribute_from_dataloader`
 - `evaluate_graph_from_dataloader`
 - `evaluate_baseline_from_dataloader`
@@ -63,9 +67,28 @@ Stable high-level API lives in `meap.api`.
 API stability policy and deprecations:
 - `docs/docs/API_STABILITY.md`
 
-## Two Supported Input Entrypoints
+## Primary Entrypoint (Prepared Inputs)
 
-### Entrypoint A: `PreparedBatch` (fully user-prepared inputs)
+Core v2 usage is object-oriented and prepared-input-first:
+
+```python
+from meap import AttributionModel, PreparedBatch
+
+model = AttributionModel.from_pretrained("openai-community/gpt2")
+result = model.attribute(
+    batches=[prepared_batch],  # PreparedBatch or nested prepared mapping
+    metric=metric_fn,
+    method="EAP",
+)
+```
+
+## Compatibility Entrypoints (Deprecated)
+
+The following APIs are retained for migration and emit `DeprecationWarning`:
+- `discover_circuit(...)`
+- `attribute_from_dataloader(...)`
+
+### Compatibility A: `PreparedBatch` (fully user-prepared inputs)
 
 ```python
 from meap import HFLLMBackend, attribute_from_dataloader
@@ -80,7 +103,7 @@ result = attribute_from_dataloader(
 )
 ```
 
-### Entrypoint B: raw clean/corrupt + `pair_batch_preparer`
+### Compatibility B: raw clean/corrupt + `pair_batch_preparer`
 
 ```python
 from meap import HFLLMBackend, HFProcessorAdapter, RawPairBatch, attribute_from_dataloader
@@ -105,9 +128,12 @@ Notes:
 
 ## HF Adapter Selection (V2)
 
-Two lanes:
-- Lane A (recommended): `discover_circuit(...)` handles model loading + HF route selection.
-- Lane B (advanced): `attribute_from_dataloader(...)` only runs attribution with an explicit prebuilt `backend`.
+Primary lane:
+- `AttributionModel.from_pretrained(...)` handles model loading + HF route selection.
+
+Compatibility lane (deprecated):
+- `discover_circuit(...)`
+- `attribute_from_dataloader(...)`
 
 Route terms:
 - `language_trunk_path`: 目的是找到你 Hugging Face model (`nn.Module`) 中语言模型部分的路径。

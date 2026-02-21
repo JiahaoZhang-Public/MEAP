@@ -87,6 +87,18 @@ python scripts/inspect_adapter_registry.py \
   --output reports/adapter_registry_qwen2.json
 ```
 
+### 4) Route + graph/hook matrix for text and multimodal models
+
+```bash
+python scripts/route_graph_matrix.py \
+  --text-models gpt2,facebook/opt-125m,Qwen/Qwen2-0.5B \
+  --multimodal-models Qwen/Qwen2-VL-2B,llava-hf/llava-1.5-7b-hf,fixie-ai/ultravox-v0_5-llama-3_2-1b \
+  --run-attribute-smoke \
+  --device cpu \
+  --dtype float32 \
+  --output reports/route_graph_matrix.json
+```
+
 ## Common Failures and Fixes
 
 1. `Unsupported HF architecture for HFLLMBackend`

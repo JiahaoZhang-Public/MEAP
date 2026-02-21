@@ -13,9 +13,13 @@ from typing import Any
 import warnings
 
 from .api import (
+    AttributionModel,
+    AttributionResult,
     AttributionRunResult,
     CircuitEdgeSummary,
     CircuitRunResult,
+    PreparedInputLike,
+    RouteInfo,
     TaskSpec,
     attribute_from_dataloader,
     discover_circuit,
@@ -151,6 +155,8 @@ def prepare_llava_token_pair_batch(*args: Any, **kwargs: Any):
 
 
 __all__ = [
+    "AttributionModel",
+    "AttributionResult",
     "AttributionRunResult",
     "CircuitEdgeSummary",
     "CircuitRunResult",
@@ -158,7 +164,9 @@ __all__ = [
     "DEFAULT_MULTIMODAL_MODEL_ID",
     "Graph",
     "PreparedBatch",
+    "PreparedInputLike",
     "RawPairBatch",
+    "RouteInfo",
     "HFProcessorAdapter",
     "HFLLMBackend",
     "TLensBackend",

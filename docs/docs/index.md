@@ -6,21 +6,25 @@ This documentation is organized by **what a new user should read first**.
 
 Current baseline:
 - API contract: **v2**
-- High-level input modes: `PreparedBatch` or `RawPairBatch + pair_batch_preparer`
-- API lanes:
-  - Lane A (recommended): `discover_circuit(...)` for model-id/path based routing + attribution.
-  - Lane B (advanced): `attribute_from_dataloader(...)` with explicit prebuilt `backend`.
+- Primary API: `AttributionModel`
+- Core contract:
+  - `model -> language trunk/graph`
+  - `prepared inputs -> attribution`
+- Compatibility lane (deprecated): `discover_circuit(...)`, `attribute_from_dataloader(...)`
 
 ## Start Here
 
 1. Package quickstart:
 - `README.md` (repository root)
 
-One-shot entrypoint for HF model id / local path:
-- `discover_circuit(...)` in `meap.api`
+Primary entrypoint:
+- `AttributionModel` in `meap.api` / `meap`
 
 2. Stable API contract:
 - `docs/docs/API_STABILITY.md`
+
+AttributionModel API design and scope:
+- `docs/docs/ATTRIBUTION_MODEL_API_DESIGN.md`
 
 3. Runtime compatibility matrix:
 - `docs/docs/COMPATIBILITY_MATRIX.md`
@@ -44,6 +48,7 @@ One-shot entrypoint for HF model id / local path:
 
 Active documents:
 - `API_STABILITY.md`
+- `ATTRIBUTION_MODEL_API_DESIGN.md`
 - `COMPATIBILITY_MATRIX.md`
 - `SUPPORTED_MODELS.md`
 - `REPORT_SCHEMAS.md`

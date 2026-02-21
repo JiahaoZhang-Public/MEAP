@@ -67,6 +67,21 @@ python scripts/real_attribution_modalities.py \
 python scripts/discover_circuit_minimal.py --model-ref openai-community/gpt2 --task next_token --method EAP
 ```
 
+9. `scripts/route_graph_matrix.py`
+- Purpose: verify `model -> language trunk -> graph/hook` route resolution across text and multimodal model sets.
+- Optional: add `--run-attribute-smoke` to run one minimal `PreparedBatch` attribution smoke (`method=smoke`) per model.
+- Output schema: `report_type=route_graph_matrix`, `schema_version=1.0.0`.
+- Typical use:
+```bash
+python scripts/route_graph_matrix.py \
+  --text-models gpt2,facebook/opt-125m,Qwen/Qwen2-0.5B \
+  --multimodal-models Qwen/Qwen2-VL-2B,llava-hf/llava-1.5-7b-hf,fixie-ai/ultravox-v0_5-llama-3_2-1b \
+  --run-attribute-smoke \
+  --device cpu \
+  --dtype float32 \
+  --output reports/route_graph_matrix.json
+```
+
 For per-model, per-modality walkthrough scripts, use:
 - `examples/text/gpt2.py`
 - `examples/image/Qwen2-VL-2B.py`

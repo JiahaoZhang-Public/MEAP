@@ -86,14 +86,15 @@ def _raw_preparer(device: torch.device):
 def test_attribute_from_dataloader_supports_raw_batches_with_custom_preparer():
     model, backend = _tiny_model_and_backend()
 
-    result = attribute_from_dataloader(
-        model=model,
-        backend=backend,
-        dataloader=_raw_dataloader(),
-        metric=_metric,
-        pair_batch_preparer=_raw_preparer(backend.config.device),
-        method="smoke",
-    )
+    with pytest.warns(DeprecationWarning, match="AttributionModel.from_model"):
+        result = attribute_from_dataloader(
+            model=model,
+            backend=backend,
+            dataloader=_raw_dataloader(),
+            metric=_metric,
+            pair_batch_preparer=_raw_preparer(backend.config.device),
+            method="smoke",
+        )
 
     assert result.scores.shape == (result.graph.n_forward, result.graph.n_backward)
     assert torch.all(result.scores == 0)

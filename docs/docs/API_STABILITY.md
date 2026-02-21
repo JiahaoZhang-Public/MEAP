@@ -1,4 +1,4 @@
-# API Stability (v2)
+# API Stability (v2, AttributionModel MVP)
 
 This page defines the supported package surface for `meap` v2.
 
@@ -7,15 +7,23 @@ This page defines the supported package surface for `meap` v2.
 Primary module:
 - `meap.api`
 
+Primary stable entrypoint:
+- `AttributionModel`
+
 Stable symbols:
+- `AttributionModel`
+- `AttributionResult`
+- `RouteInfo`
+- `PreparedInputLike`
 - `AttributionRunResult`
 - `TaskSpec`
 - `CircuitEdgeSummary`
 - `CircuitRunResult`
-- `attribute_from_dataloader`
-- `discover_circuit`
 - `evaluate_graph_from_dataloader`
 - `evaluate_baseline_from_dataloader`
+- compatibility wrappers (deprecated):
+  - `attribute_from_dataloader`
+  - `discover_circuit`
 
 Stable package-level objects:
 - `HFLLMBackend`, `TLensBackend`
@@ -25,7 +33,26 @@ Stable package-level objects:
 - `list_supported_architectures`, `list_official_models`
 - `register_architecture_adapter`, `inspect_model_architecture`, `resolve_backend`
 
-## V2 Breaking Changes
+## V2 MVP Contract
+
+Core path:
+1. `model -> language trunk/graph`
+2. `prepared inputs -> attribution`
+
+Core `AttributionModel` APIs accept:
+- `PreparedBatch`, or
+- nested prepared mapping:
+  - `clean_inputs`
+  - `corrupt_inputs`
+  - optional `labels` / `input_lengths` / `meta`
+
+Core `AttributionModel` APIs do not accept:
+- `clean_samples`
+- `corrupt_samples`
+- `processor`
+- `pair_batch_preparer`
+
+## Compatibility Lane (Deprecated)
 
 1. High-level dataloader input is now strict:
 - accepted: `PreparedBatch`, `RawPairBatch`
@@ -35,10 +62,11 @@ Stable package-level objects:
 - use `pair_batch_preparer=...`
 - recommended helper: `HFProcessorAdapter(processor=...)`
 
-3. High-level API lanes are explicit:
-- Lane A (recommended): `discover_circuit(...)` for model-id/path driven flow.
-- Lane B (advanced): `attribute_from_dataloader(...)` / `evaluate_*_from_dataloader(...)` with explicit `backend=...`.
-- Route selection (`adapter_name`, `language_trunk_path`) is not part of Lane B APIs.
+Deprecated compatibility wrappers:
+- `discover_circuit(...)`
+- `attribute_from_dataloader(...)`
+
+These wrappers preserve behavior for migration and emit `DeprecationWarning`.
 
 ## HF Resolution Contract
 
@@ -52,7 +80,8 @@ Resolution order:
 3. else: automatic adapter + trunk selection
 
 Where route selection happens:
-- `discover_circuit(...)` (Lane A), or
+- `AttributionModel.from_pretrained(...)` (primary), or
+- `discover_circuit(...)` (deprecated compatibility), or
 - `HFLLMBackend(model, adapter_name=..., language_trunk_path=...)` initialization.
 
 Diagnostics fields are stable:

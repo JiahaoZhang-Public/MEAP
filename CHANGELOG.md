@@ -2,6 +2,32 @@
 
 All notable changes to this project are documented here.
 
+## [1.3.0] - 2026-02-21
+
+### Features
+- Added `AttributionModel` as the primary object-oriented public API for:
+  - `model -> language trunk/graph`
+  - `prepared inputs -> attribution`
+- Added new public data types:
+  - `AttributionResult`
+  - `RouteInfo`
+  - `PreparedInputLike`
+  - `ComponentSpec` (MVP contract placeholder)
+- Added nested prepared mapping input normalization in `AttributionModel`:
+  - required: `clean_inputs`, `corrupt_inputs`
+  - optional: `labels`, `input_lengths`, `meta`
+- Added `scripts/route_graph_matrix.py` for matrix validation of:
+  - `model -> language trunk -> graph/hook` route discovery
+  - text + multimodal official model coverage
+  - optional one-shot `PreparedBatch` attribution smoke per model (`--run-attribute-smoke`)
+
+### Compatibility / Deprecation
+- `discover_circuit(...)` and `attribute_from_dataloader(...)` are retained as compatibility wrappers and now emit `DeprecationWarning` with `AttributionModel` migration hints.
+
+### Docs
+- Added `docs/docs/ATTRIBUTION_MODEL_API_DESIGN.md` implementation notes and MVP limits.
+- Updated API stability and package docs to mark `AttributionModel` as primary entrypoint.
+
 ## [1.2.0] - 2026-02-21
 
 ### Breaking
