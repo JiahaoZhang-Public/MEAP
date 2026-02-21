@@ -1,6 +1,6 @@
-# API Stability (v1)
+# API Stability (v2)
 
-This page defines the supported package surface for `meap` v1.
+This page defines the supported package surface for `meap` v2.
 
 ## Stable Public API
 
@@ -19,10 +19,47 @@ Stable symbols:
 
 Stable package-level objects:
 - `HFLLMBackend`, `TLensBackend`
-- `PreparedBatch`, `RawPairBatch`, `DictPairBatch`
+- `PreparedBatch`, `RawPairBatch`
 - `HFProcessorAdapter`
 - `Graph`
+- `list_supported_architectures`, `list_official_models`
 - `register_architecture_adapter`, `inspect_model_architecture`, `resolve_backend`
+
+## V2 Breaking Changes
+
+1. High-level dataloader input is now strict:
+- accepted: `PreparedBatch`, `RawPairBatch`
+- removed: dict/tuple dataloader entries and `DictPairBatch`
+
+2. High-level API no longer accepts direct `processor=...`:
+- use `pair_batch_preparer=...`
+- recommended helper: `HFProcessorAdapter(processor=...)`
+
+3. High-level API lanes are explicit:
+- Lane A (recommended): `discover_circuit(...)` for model-id/path driven flow.
+- Lane B (advanced): `attribute_from_dataloader(...)` / `evaluate_*_from_dataloader(...)` with explicit `backend=...`.
+- Route selection (`adapter_name`, `language_trunk_path`) is not part of Lane B APIs.
+
+## HF Resolution Contract
+
+Definitions:
+- `language_trunk_path`: path used to locate the language-model `nn.Module` inside a Hugging Face model.
+- `adapter_name`: architecture adapter used to interpret structure inside the selected language trunk.
+
+Resolution order:
+1. if `language_trunk_path` is provided: only that trunk candidate is used (and `adapter_name`, if provided, is enforced)
+2. else if `adapter_name` is provided: only that adapter is tried across candidate trunks
+3. else: automatic adapter + trunk selection
+
+Where route selection happens:
+- `discover_circuit(...)` (Lane A), or
+- `HFLLMBackend(model, adapter_name=..., language_trunk_path=...)` initialization.
+
+Diagnostics fields are stable:
+- `selected`
+- `candidate_backbones`
+- `adapter_attempts`
+- `selection_error`
 
 ## Internal Modules (Not Stability-Guaranteed)
 

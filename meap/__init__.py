@@ -57,12 +57,15 @@ from .backend import (
     resolve_backend,
 )
 from .batch import (
-    DictPairBatch,
     PreparedBatch,
     RawPairBatch,
     iter_prepared_batches,
     text_batch_to_prepared_batch,
     validate_prepared_batch,
+)
+from .catalog import (
+    list_official_models,
+    list_supported_architectures,
 )
 from .config import DEFAULT_BACKBONE_MODEL_ID, DEFAULT_MULTIMODAL_MODEL_ID
 from .evaluate import evaluate_baseline, evaluate_graph
@@ -156,7 +159,6 @@ __all__ = [
     "Graph",
     "PreparedBatch",
     "RawPairBatch",
-    "DictPairBatch",
     "HFProcessorAdapter",
     "HFLLMBackend",
     "TLensBackend",
@@ -175,6 +177,8 @@ __all__ = [
     "prepare_pair_batch_with_processor",
     "register_architecture_adapter",
     "inspect_model_architecture",
+    "list_official_models",
+    "list_supported_architectures",
     "resolve_backend",
     "text_batch_to_prepared_batch",
     "validate_prepared_batch",

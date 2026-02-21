@@ -6,14 +6,14 @@ The following script outputs are schema-versioned and treated as stable integrat
 
 Top-level keys:
 - `report_type` = `"smoke_hf_matrix"`
-- `schema_version` = `"1.0.0"`
+- `schema_version` = `"1.1.0"`
 - `generated_at_utc`
 - `config`
 - `all_passed`
 - `results`
 
 Per-result keys:
-- `model_id`, `modality`, `adapter_name`, `backbone_path`, `arch_kind`
+- `model_id`, `modality`, `adapter_name`, `language_trunk_path`, `arch_kind`
 - `status`, `seconds`
 - `error_type`, `error_message`, `resolution_error_hint`
 - `graph_stats` (`null` on failure)

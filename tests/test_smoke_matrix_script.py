@@ -26,7 +26,7 @@ def test_run_matrix_schema_with_stubbed_model_runners(monkeypatch):
             model_id="gpt2",
             modality="text",
             adapter_name="gpt2_like",
-            backbone_path="model.transformer",
+            language_trunk_path="model.transformer",
             arch_kind="gpt2_like",
             status="pass",
             seconds=0.1,
@@ -42,7 +42,7 @@ def test_run_matrix_schema_with_stubbed_model_runners(monkeypatch):
             model_id="Qwen/Qwen2-VL-2B",
             modality="multimodal",
             adapter_name="llama_like",
-            backbone_path="model.language_model.model",
+            language_trunk_path="model.language_model.model",
             arch_kind="llama_like",
             status="fail",
             seconds=0.2,
@@ -72,7 +72,7 @@ def test_run_matrix_schema_with_stubbed_model_runners(monkeypatch):
         "model_id",
         "modality",
         "adapter_name",
-        "backbone_path",
+        "language_trunk_path",
         "arch_kind",
         "status",
         "seconds",
@@ -91,7 +91,7 @@ def test_main_writes_report(monkeypatch, tmp_path):
                 "model_id": "gpt2",
                 "modality": "text",
                 "adapter_name": "gpt2_like",
-                "backbone_path": "model.transformer",
+                "language_trunk_path": "model.transformer",
                 "arch_kind": "gpt2_like",
                 "status": "pass",
                 "seconds": 0.0,
@@ -128,7 +128,7 @@ def test_main_writes_report(monkeypatch, tmp_path):
 
     loaded = json.loads(Path(out).read_text(encoding="utf-8"))
     assert loaded["report_type"] == "smoke_hf_matrix"
-    assert loaded["schema_version"] == "1.0.0"
+    assert loaded["schema_version"] == "1.1.0"
     assert "generated_at_utc" in loaded
     assert loaded["all_passed"] is True
     assert loaded["results"] == fake_report["results"]

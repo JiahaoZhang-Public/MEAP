@@ -141,6 +141,35 @@ def test_discover_circuit_runs_with_tensor_pair_and_topk_sorted(monkeypatch):
     assert result.backend_info["adapter_name"] is not None
 
 
+def test_discover_circuit_forwards_adapter_and_trunk_selectors(monkeypatch):
+    artifacts = _tiny_artifacts()
+    captured = {}
+
+    def _fake_loader(**kwargs):
+        captured.update(kwargs)
+        return artifacts
+
+    monkeypatch.setattr(api_module, "load_hf_backend_and_processor", _fake_loader)
+
+    clean_ids = torch.tensor([[1, 2, 3, 4]], dtype=torch.long)
+    corrupt_ids = torch.tensor([[1, 2, 9, 4]], dtype=torch.long)
+    mask = torch.ones_like(clean_ids)
+
+    _ = discover_circuit(
+        model_id_or_path="dummy",
+        clean_samples={"input_ids": clean_ids, "attention_mask": mask},
+        corrupt_samples={"input_ids": corrupt_ids, "attention_mask": mask.clone()},
+        task="next_token",
+        labels=torch.tensor([4]),
+        adapter_name="llama_like",
+        language_trunk_path="model.model",
+        cache=False,
+    )
+
+    assert captured["adapter_name"] == "llama_like"
+    assert captured["language_trunk_path"] == "model.model"
+
+
 def test_discover_circuit_choice_classification_metric(monkeypatch):
     artifacts = _tiny_artifacts()
     monkeypatch.setattr(api_module, "load_hf_backend_and_processor", lambda **kwargs: artifacts)
@@ -219,7 +248,7 @@ def test_hf_loader_cache_reuses_model_backend(monkeypatch):
             del kwargs
             self.model = model
             self.adapter_name = "dummy"
-            self.backbone_path = "model"
+            self.language_trunk_path = "model"
             self.arch_kind = "dummy"
 
     def fake_load_model(model_id_or_path, *, model_kwargs):
@@ -259,3 +288,62 @@ def test_hf_loader_cache_reuses_model_backend(monkeypatch):
     assert calls["model"] == 1
     assert calls["processor"] == 1
     assert calls["backend"] == 1
+
+
+def test_hf_loader_cache_key_includes_adapter_and_trunk(monkeypatch):
+    clear_hf_loader_cache()
+
+    calls = {"backend": 0}
+
+    class DummyModel(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.config = type("Cfg", (), {})()
+
+        def eval(self):
+            return self
+
+    class DummyBackend:
+        def __init__(self, model, **kwargs):
+            del kwargs
+            self.model = model
+            self.adapter_name = "dummy"
+            self.language_trunk_path = "model"
+            self.arch_kind = "dummy"
+
+    monkeypatch.setattr(hf_loader_module, "_load_model", lambda *args, **kwargs: DummyModel())
+    monkeypatch.setattr(hf_loader_module, "_load_processor", lambda *args, **kwargs: object())
+
+    def _fake_backend(model, **kwargs):
+        del model, kwargs
+        calls["backend"] += 1
+        return DummyBackend(model=None)
+
+    monkeypatch.setattr(hf_loader_module, "HFLLMBackend", _fake_backend)
+
+    _ = load_hf_backend_and_processor(
+        model_id_or_path="dummy-model",
+        device="cpu",
+        dtype="float32",
+        adapter_name="llama_like",
+        language_trunk_path="model.model",
+        cache=True,
+    )
+    _ = load_hf_backend_and_processor(
+        model_id_or_path="dummy-model",
+        device="cpu",
+        dtype="float32",
+        adapter_name="llama_like",
+        language_trunk_path="model.model",
+        cache=True,
+    )
+    _ = load_hf_backend_and_processor(
+        model_id_or_path="dummy-model",
+        device="cpu",
+        dtype="float32",
+        adapter_name="gpt2_like",
+        language_trunk_path="model.transformer",
+        cache=True,
+    )
+
+    assert calls["backend"] == 2

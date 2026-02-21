@@ -80,25 +80,56 @@ result = attribute_from_dataloader(
 )
 ```
 
-### Entrypoint B: raw clean/corrupt + `processor` or `pair_batch_preparer`
+### Entrypoint B: raw clean/corrupt + `pair_batch_preparer`
 
 ```python
-from meap import HFLLMBackend, attribute_from_dataloader
+from meap import HFLLMBackend, HFProcessorAdapter, RawPairBatch, attribute_from_dataloader
 
 backend = HFLLMBackend(model, tokenizer=getattr(processor, "tokenizer", None))
+pair_batch_preparer = HFProcessorAdapter(processor=processor, device=backend.config.device)
 result = attribute_from_dataloader(
     model=model,
     backend=backend,
-    dataloader=[{"clean": clean_samples, "corrupt": corrupt_samples, "labels": labels}],
-    processor=processor,  # or pair_batch_preparer=...
+    dataloader=[
+        RawPairBatch(clean=clean_samples, corrupt=corrupt_samples, labels=labels)
+    ],
+    pair_batch_preparer=pair_batch_preparer,
     metric=metric_fn,
     method="smoke",
 )
 ```
 
 Notes:
-- `processor` and `pair_batch_preparer` are mutually exclusive.
+- V2 高层 API 仅接受 `PreparedBatch` 或 `RawPairBatch`。
 - High-level API does not do implicit truncation.
+
+## HF Adapter Selection (V2)
+
+Two lanes:
+- Lane A (recommended): `discover_circuit(...)` handles model loading + HF route selection.
+- Lane B (advanced): `attribute_from_dataloader(...)` only runs attribution with an explicit prebuilt `backend`.
+
+Route terms:
+- `language_trunk_path`: 目的是找到你 Hugging Face model (`nn.Module`) 中语言模型部分的路径。
+- `adapter_name`: 识别该 language trunk 内部结构的适配器名称。
+
+Lane A supports explicit adapter/trunk selection:
+
+```python
+from meap.api import discover_circuit
+
+result = discover_circuit(
+    model_id_or_path="Qwen/Qwen2-VL-2B",
+    adapter_name="llama_like",
+    language_trunk_path="model.language_model.model",
+    clean_samples={"text": ["Describe the image"]},
+    corrupt_samples={"text": ["Transcribe the text"]},
+    task="next_token",
+    labels=[42],
+)
+```
+
+默认情况下（`adapter_name=None`, `language_trunk_path=None`）会自动解析。
 
 ## Minimal Executable Examples
 
@@ -232,10 +263,6 @@ Active docs:
 - Release process: `docs/docs/RELEASE_PROCESS.md`
 - New model onboarding (5 min): `docs/docs/NEW_MODEL_ONBOARDING.md`
 - Scripts guide: `scripts/README.md`
-
-Archived historical docs (cache):
-- Staged implementation history: `docs/cache/STAGED_IMPLEMENTATION.md`
-- Early refactor design context: `docs/cache/REFACTOR_DESIGN.md`
 
 ## Development
 

@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from meap.batch import iter_prepared_batches
+from meap.batch import RawPairBatch, iter_prepared_batches
 from meap.preparer import HFProcessorAdapter
 
 
@@ -96,15 +96,15 @@ def test_hf_processor_adapter_prepares_pair_batch_with_image_spans():
     assert prepared.meta["clean_modality_spans"] == prepared.meta["corrupt_modality_spans"]
 
 
-def test_iter_prepared_batches_supports_dict_batches_with_adapter():
+def test_iter_prepared_batches_supports_raw_pair_batches_with_adapter():
     processor = DummyProcessor()
     adapter = HFProcessorAdapter(processor=processor)
 
-    raw_batch = {
-        "clean": [{"text": "a b"}, {"text": "c d"}],
-        "corrupt": [{"text": "x b"}, {"text": "y d"}],
-        "labels": torch.tensor([1, 0]),
-    }
+    raw_batch = RawPairBatch(
+        clean=[{"text": "a b"}, {"text": "c d"}],
+        corrupt=[{"text": "x b"}, {"text": "y d"}],
+        labels=torch.tensor([1, 0]),
+    )
 
     prepared = list(
         iter_prepared_batches(
@@ -119,11 +119,11 @@ def test_iter_prepared_batches_supports_dict_batches_with_adapter():
 
 
 def test_iter_prepared_batches_raw_pair_requires_adapter():
-    raw_batch = {
-        "clean": [{"text": "a b"}],
-        "corrupt": [{"text": "c d"}],
-        "labels": torch.tensor([0]),
-    }
+    raw_batch = RawPairBatch(
+        clean=[{"text": "a b"}],
+        corrupt=[{"text": "c d"}],
+        labels=torch.tensor([0]),
+    )
 
     with pytest.raises(TypeError, match="pair_batch_preparer"):
         _ = list(iter_prepared_batches(tokenization_model=None, batches=[raw_batch]))
@@ -131,16 +131,16 @@ def test_iter_prepared_batches_raw_pair_requires_adapter():
 
 def test_iter_prepared_batches_text_tuple_requires_explicit_preparer():
     tuple_batch = (["a b"], ["c d"], torch.tensor([0]))
-    with pytest.raises(TypeError, match="pair_batch_preparer"):
+    with pytest.raises(TypeError, match="V2 no longer accepts dict/tuple"):
         _ = list(iter_prepared_batches(tokenization_model=object(), batches=[tuple_batch]))
 
 
 def test_iter_prepared_batches_rejects_max_length_legacy_flag():
-    raw_batch = {
-        "clean": [{"text": "a b"}],
-        "corrupt": [{"text": "c d"}],
-        "labels": torch.tensor([0]),
-    }
+    raw_batch = RawPairBatch(
+        clean=[{"text": "a b"}],
+        corrupt=[{"text": "c d"}],
+        labels=torch.tensor([0]),
+    )
     with pytest.raises(ValueError, match="max_length is no longer applied"):
         _ = list(iter_prepared_batches(tokenization_model=None, batches=[raw_batch], max_length=16))
 

@@ -28,7 +28,9 @@ if str(REPO_ROOT) not in sys.path:
 
 from meap import (  # noqa: E402
     HFLLMBackend,
+    HFProcessorAdapter,
     PreparedBatch,
+    RawPairBatch,
     attribute_from_dataloader,
 )
 from meap.batch import PairBatchPreparer, validate_prepared_batch  # noqa: E402
@@ -479,20 +481,24 @@ def _run_image(ctx: RunContext) -> ModalityResult:
         corrupt_prompt = _build_image_prompt(processor, "What object is this scene mainly about?")
 
         dataloader = [
-            {
-                "clean": [{"text": clean_prompt, "images": image}],
-                "corrupt": [{"text": corrupt_prompt, "images": image}],
-                "labels": labels,
-            }
+            RawPairBatch(
+                clean=[{"text": clean_prompt, "images": image}],
+                corrupt=[{"text": corrupt_prompt, "images": image}],
+                labels=labels,
+            )
         ]
 
         backend = HFLLMBackend(model, tokenizer=tokenizer)
+        preparer = HFProcessorAdapter(
+            processor=processor,
+            processor_kwargs={"padding": True},
+            device=backend.config.device,
+        )
         result = attribute_from_dataloader(
             model=model,
             backend=backend,
             dataloader=dataloader,
-            processor=processor,
-            processor_kwargs={"padding": True},
+            pair_batch_preparer=preparer,
             metric=metric_logit_diff,
             method=ctx.method,
             quiet=True,
@@ -572,11 +578,11 @@ def _run_audio(ctx: RunContext) -> ModalityResult:
             {"role": "user", "content": "Transcribe the spoken content."},
         ]
         dataloader = [
-            {
-                "clean": {"audio": audio, "sampling_rate": sr, "turns": turns_clean},
-                "corrupt": {"audio": audio, "sampling_rate": sr, "turns": turns_corrupt},
-                "labels": labels,
-            }
+            RawPairBatch(
+                clean={"audio": audio, "sampling_rate": sr, "turns": turns_clean},
+                corrupt={"audio": audio, "sampling_rate": sr, "turns": turns_corrupt},
+                labels=labels,
+            )
         ]
 
         result = attribute_from_dataloader(

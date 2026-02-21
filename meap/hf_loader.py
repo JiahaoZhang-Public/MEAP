@@ -66,6 +66,8 @@ def _cache_key(
     model_id_or_path: str,
     device: torch.device,
     dtype: torch.dtype,
+    adapter_name: Optional[str],
+    language_trunk_path: Optional[str],
     strict_arch: bool,
     model_kwargs: Optional[Dict[str, Any]],
 ) -> str:
@@ -75,6 +77,8 @@ def _cache_key(
             _normalize_model_ref(model_id_or_path),
             str(device),
             str(dtype),
+            str(adapter_name),
+            str(language_trunk_path),
             str(strict_arch),
             kwargs_key,
         ]
@@ -115,6 +119,8 @@ def load_hf_backend_and_processor(
     device: str | torch.device = "auto",
     dtype: str | torch.dtype = "auto",
     model_kwargs: Optional[Dict[str, Any]] = None,
+    adapter_name: str | None = None,
+    language_trunk_path: str | None = None,
     strict_arch: bool = True,
     cache: bool = True,
 ) -> HFLoadedArtifacts:
@@ -126,6 +132,8 @@ def load_hf_backend_and_processor(
         model_id_or_path=normalized_ref,
         device=resolved_device,
         dtype=resolved_dtype,
+        adapter_name=adapter_name,
+        language_trunk_path=language_trunk_path,
         strict_arch=strict_arch,
         model_kwargs=model_kwargs,
     )
@@ -162,15 +170,23 @@ def load_hf_backend_and_processor(
             tokenizer=tokenizer,
             device=resolved_device,
             dtype=resolved_dtype,
+            adapter_name=adapter_name,
+            language_trunk_path=language_trunk_path,
             strict_arch=strict_arch,
         )
     except Exception as exc:
-        diagnostics = inspect_model_architecture(model)
+        diagnostics = inspect_model_architecture(
+            model,
+            adapter_name=adapter_name,
+            language_trunk_path=language_trunk_path,
+        )
         candidates = diagnostics.get("candidate_backbones", [])
         selection_error = diagnostics.get("selection_error", "unknown")
         raise ValueError(
             "Unsupported model architecture for HFLLMBackend. "
-            f"model='{normalized_ref}', candidates={candidates}, selection_error={selection_error}. "
+            f"model='{normalized_ref}', adapter_name='{adapter_name}', "
+            f"language_trunk_path='{language_trunk_path}', candidates={candidates}, "
+            f"selection_error={selection_error}. "
             f"Original error: {exc}"
         ) from exc
 

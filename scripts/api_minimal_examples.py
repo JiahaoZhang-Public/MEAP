@@ -27,7 +27,9 @@ if str(REPO_ROOT) not in sys.path:
 
 from meap import (  # noqa: E402
     HFLLMBackend,
+    HFProcessorAdapter,
     PreparedBatch,
+    RawPairBatch,
     attribute_from_dataloader,
 )
 from meap.batch import PairBatchPreparer, validate_prepared_batch  # noqa: E402
@@ -277,19 +279,22 @@ def _run_image_qwen2_vl(args: argparse.Namespace) -> Dict[str, Any]:
     corrupt_prompt = _qwen2_vl_prompt(processor, "Is the square black?")
 
     dataloader = [
-        {
-            "clean": [{"text": clean_prompt, "images": image}],
-            "corrupt": [{"text": corrupt_prompt, "images": image}],
-            "labels": torch.tensor([0]),
-        }
+        RawPairBatch(
+            clean=[{"text": clean_prompt, "images": image}],
+            corrupt=[{"text": corrupt_prompt, "images": image}],
+            labels=torch.tensor([0]),
+        )
     ]
-    # No implicit truncation here; if needed, pass truncation/max_length explicitly in processor_kwargs.
+    preparer = HFProcessorAdapter(
+        processor=processor,
+        processor_kwargs={"padding": True},
+        device=backend.config.device,
+    )
     result = attribute_from_dataloader(
         model=model,
         backend=backend,
         dataloader=dataloader,
-        processor=processor,
-        processor_kwargs={"padding": True},
+        pair_batch_preparer=preparer,
         metric=_metric,
         method=args.method,
     )
@@ -373,11 +378,11 @@ def _run_audio_ultravox(args: argparse.Namespace) -> Dict[str, Any]:
         {"role": "user", "content": corrupt_user_prompt},
     ]
     dataloader = [
-        {
-            "clean": [{"audio": audio, "sampling_rate": sr, "turns": turns_clean}],
-            "corrupt": [{"audio": audio, "sampling_rate": sr, "turns": turns_corrupt}],
-            "labels": torch.tensor([0]),
-        }
+        RawPairBatch(
+            clean=[{"audio": audio, "sampling_rate": sr, "turns": turns_clean}],
+            corrupt=[{"audio": audio, "sampling_rate": sr, "turns": turns_corrupt}],
+            labels=torch.tensor([0]),
+        )
     ]
     result = attribute_from_dataloader(
         model=model,

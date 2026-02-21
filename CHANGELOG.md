@@ -2,6 +2,38 @@
 
 All notable changes to this project are documented here.
 
+## [1.2.0] - 2026-02-21
+
+### Breaking
+- High-level dataloader contract is now strict:
+  - accepted: `PreparedBatch`, `RawPairBatch`
+  - removed: dict/tuple-compatible high-level dataloader forms (`DictPairBatch` removed from public surface)
+- High-level API no longer accepts direct `processor=...`:
+  - use `pair_batch_preparer=...`
+  - recommended helper: `HFProcessorAdapter(processor=...)`
+
+### Features
+- High-level HF selection now supports:
+  - `adapter_name`
+  - `language_trunk_path`
+- HF architecture diagnostics standardized with:
+  - `selected`
+  - `candidate_backbones`
+  - `adapter_attempts`
+  - `selection_error`
+- Added official runtime catalog module:
+  - `meap.catalog`
+  - `list_supported_architectures()`
+  - `list_official_models()`
+- Official core support set defined as:
+  - text: `gpt2`, `distilgpt2`, `facebook/opt-125m`, `Qwen/Qwen2-0.5B`
+  - multimodal: `Qwen/Qwen2-VL-2B`, `llava-hf/llava-1.5-7b-hf`
+
+### Docs
+- Updated API stability page to v2 contract.
+- Updated supported models page to catalog-aligned core set.
+- Updated onboarding and governance docs for runtime registration vs official support paths.
+
 ## [1.1.0] - 2026-02-20
 
 ### Breaking

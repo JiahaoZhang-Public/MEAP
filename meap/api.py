@@ -14,7 +14,7 @@ from torch import Tensor
 import torch.nn.functional as F
 
 from .attribute import attribute
-from .backend import ModelBackend, resolve_backend
+from .backend import ModelBackend
 from .batch import (
     BatchLike,
     PairBatchPreparer,
@@ -67,31 +67,6 @@ class CircuitRunResult:
     top_edges: list[CircuitEdgeSummary]
     backend_info: dict[str, Any]
     run_info: dict[str, Any]
-
-
-def _resolve_pair_batch_preparer(
-    backend_obj: ModelBackend,
-    *,
-    processor: Optional[Any],
-    pair_batch_preparer: Optional[PairBatchPreparer],
-    processor_kwargs: Optional[dict[str, Any]],
-) -> Optional[PairBatchPreparer]:
-    if processor is not None and pair_batch_preparer is not None:
-        raise ValueError("Provide either processor or pair_batch_preparer, not both")
-
-    if pair_batch_preparer is not None:
-        return pair_batch_preparer
-
-    if processor is None:
-        if processor_kwargs is not None:
-            raise ValueError("processor_kwargs requires processor=... to be provided")
-        return None
-
-    return HFProcessorAdapter(
-        processor=processor,
-        processor_kwargs=processor_kwargs,
-        device=backend_obj.config.device,
-    )
 
 
 def _prepare_batch_stream(
@@ -435,6 +410,8 @@ def discover_circuit(
     batch_size: int | None = None,
     processor_kwargs: dict[str, Any] | None = None,
     model_kwargs: dict[str, Any] | None = None,
+    adapter_name: str | None = None,
+    language_trunk_path: str | None = None,
     cache: bool = True,
     strict_arch: bool = True,
 ) -> CircuitRunResult:
@@ -446,6 +423,8 @@ def discover_circuit(
         device=device,
         dtype=dtype,
         model_kwargs=model_kwargs,
+        adapter_name=adapter_name,
+        language_trunk_path=language_trunk_path,
         strict_arch=strict_arch,
         cache=cache,
     )
@@ -480,8 +459,10 @@ def discover_circuit(
 
     backend_info = {
         "adapter_name": getattr(artifacts.backend, "adapter_name", None),
-        "backbone_path": getattr(artifacts.backend, "backbone_path", None),
+        "language_trunk_path": getattr(artifacts.backend, "language_trunk_path", None),
         "arch_kind": getattr(artifacts.backend, "arch_kind", None),
+        "requested_adapter_name": adapter_name,
+        "requested_language_trunk_path": language_trunk_path,
         "from_cache": artifacts.from_cache,
     }
     run_info = {
@@ -490,6 +471,8 @@ def discover_circuit(
         "model_id_or_path": artifacts.model_id_or_path,
         "device": str(artifacts.device),
         "dtype": str(artifacts.dtype),
+        "adapter_name": adapter_name,
+        "language_trunk_path": language_trunk_path,
         "elapsed_sec": elapsed,
         "n_batches": len(prepared_batches),
         "n_examples": int(sum(batch.batch_size for batch in prepared_batches)),
@@ -509,11 +492,9 @@ def attribute_from_dataloader(
     dataloader: Iterable[BatchLike],
     metric: MetricFn,
     *,
-    backend: Optional[ModelBackend] = None,
+    backend: ModelBackend,
     graph: Optional[Graph] = None,
-    processor: Optional[Any] = None,
     pair_batch_preparer: Optional[PairBatchPreparer] = None,
-    processor_kwargs: Optional[dict[str, Any]] = None,
     method: Literal[
         "EAP",
         "EAP-IG-inputs",
@@ -529,14 +510,14 @@ def attribute_from_dataloader(
     max_length: Optional[int] = None,
     quiet: bool = False,
 ) -> AttributionRunResult:
-    """High-level attribution API with user-managed data preparation.
+    """Advanced attribution API with user-managed backend and data preparation.
 
     Users should provide either:
     1) dataloader entries that are already PreparedBatch, or
-    2) raw clean/corrupt entries and explicit processor=... / pair_batch_preparer=....
+    2) raw clean/corrupt entries and explicit pair_batch_preparer=....
     """
 
-    backend_obj = resolve_backend(model, backend)
+    backend_obj = backend
     if max_length is not None:
         raise ValueError(
             "max_length is not applied by high-level API anymore. "
@@ -544,18 +525,11 @@ def attribute_from_dataloader(
         )
     run_graph = graph if graph is not None else Graph.from_model(backend_obj.config)
 
-    resolved_preparer = _resolve_pair_batch_preparer(
-        backend_obj,
-        processor=processor,
-        pair_batch_preparer=pair_batch_preparer,
-        processor_kwargs=processor_kwargs,
-    )
-
     prepared_batches = _prepare_batch_stream(
         backend_obj,
         dataloader,
         max_length=max_length,
-        pair_batch_preparer=resolved_preparer,
+        pair_batch_preparer=pair_batch_preparer,
     )
 
     prepared_intervention_batches = None
@@ -564,7 +538,7 @@ def attribute_from_dataloader(
             backend_obj,
             intervention_dataloader,
             max_length=max_length,
-            pair_batch_preparer=resolved_preparer,
+            pair_batch_preparer=pair_batch_preparer,
         )
 
     scores = attribute(
@@ -590,34 +564,25 @@ def evaluate_graph_from_dataloader(
     dataloader: Iterable[BatchLike],
     metrics: Union[MetricFn, List[MetricFn]],
     *,
-    backend: Optional[ModelBackend] = None,
-    processor: Optional[Any] = None,
+    backend: ModelBackend,
     pair_batch_preparer: Optional[PairBatchPreparer] = None,
-    processor_kwargs: Optional[dict[str, Any]] = None,
     max_length: Optional[int] = None,
     quiet: bool = False,
     intervention: Literal["patching", "zero", "mean", "mean-positional"] = "patching",
     intervention_dataloader: Optional[Iterable[BatchLike]] = None,
     skip_clean: bool = True,
 ) -> Union[torch.Tensor, List[torch.Tensor]]:
-    backend_obj = resolve_backend(model, backend)
+    backend_obj = backend
     if max_length is not None:
         raise ValueError(
             "max_length is not applied by high-level API anymore. "
             "Please truncate inside your processor/preparer."
         )
-    resolved_preparer = _resolve_pair_batch_preparer(
-        backend_obj,
-        processor=processor,
-        pair_batch_preparer=pair_batch_preparer,
-        processor_kwargs=processor_kwargs,
-    )
-
     prepared_batches = _prepare_batch_stream(
         backend_obj,
         dataloader,
         max_length=max_length,
-        pair_batch_preparer=resolved_preparer,
+        pair_batch_preparer=pair_batch_preparer,
     )
 
     prepared_intervention_batches = None
@@ -626,7 +591,7 @@ def evaluate_graph_from_dataloader(
             backend_obj,
             intervention_dataloader,
             max_length=max_length,
-            pair_batch_preparer=resolved_preparer,
+            pair_batch_preparer=pair_batch_preparer,
         )
 
     return evaluate_graph(
@@ -647,32 +612,23 @@ def evaluate_baseline_from_dataloader(
     dataloader: Iterable[BatchLike],
     metrics: Union[MetricFn, List[MetricFn]],
     *,
-    backend: Optional[ModelBackend] = None,
-    processor: Optional[Any] = None,
+    backend: ModelBackend,
     pair_batch_preparer: Optional[PairBatchPreparer] = None,
-    processor_kwargs: Optional[dict[str, Any]] = None,
     max_length: Optional[int] = None,
     run_corrupted: bool = False,
     quiet: bool = False,
 ) -> Union[torch.Tensor, List[torch.Tensor]]:
-    backend_obj = resolve_backend(model, backend)
+    backend_obj = backend
     if max_length is not None:
         raise ValueError(
             "max_length is not applied by high-level API anymore. "
             "Please truncate inside your processor/preparer."
         )
-    resolved_preparer = _resolve_pair_batch_preparer(
-        backend_obj,
-        processor=processor,
-        pair_batch_preparer=pair_batch_preparer,
-        processor_kwargs=processor_kwargs,
-    )
-
     prepared_batches = _prepare_batch_stream(
         backend_obj,
         dataloader,
         max_length=max_length,
-        pair_batch_preparer=resolved_preparer,
+        pair_batch_preparer=pair_batch_preparer,
     )
 
     return evaluate_baseline(

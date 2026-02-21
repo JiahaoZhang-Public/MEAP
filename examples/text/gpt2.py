@@ -2,18 +2,18 @@
 """Text attribution example for GPT-2.
 
 This example shows the full workflow with meap:
-1. Raw data -> tokenization -> model inputs (PreparedBatch)
+1. Raw data -> dataloader input (`PreparedBatch` or `RawPairBatch + pair_batch_preparer`)
 2. Attribution with EAP-family methods (default EAP)
 3. Graph visualization export (JSON + PNG)
 
 Run:
-  python examples/text/gpt2.py --device cpu --dtype float32 --method EAP
+  python examples/text/gpt2.py --device cpu --dtype float32 --method EAP --input-mode prepared
+  python examples/text/gpt2.py --device cpu --dtype float32 --method EAP --input-mode raw
 """
 
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict
 from datetime import datetime
 import json
 from pathlib import Path
@@ -38,7 +38,14 @@ from examples.common import (  # noqa: E402
     write_model_input_summary,
     write_run_summary,
 )
-from meap import HFLLMBackend, PreparedBatch, attribute_from_dataloader  # noqa: E402
+
+from meap import (  # noqa: E402
+    HFLLMBackend,
+    HFProcessorAdapter,
+    PreparedBatch,
+    RawPairBatch,
+    attribute_from_dataloader,
+)
 from meap.batch import validate_prepared_batch  # noqa: E402
 
 
@@ -53,6 +60,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--dtype", default="float32", choices=["float16", "bfloat16", "float32"])
     parser.add_argument("--topn", type=int, default=200)
+    parser.add_argument(
+        "--input-mode",
+        default="prepared",
+        choices=["prepared", "raw"],
+        help="Dataloader entry type: PreparedBatch or RawPairBatch + pair_batch_preparer.",
+    )
     parser.add_argument("--hf-token", default=None)
     parser.add_argument("--run-name", default="")
     parser.add_argument("--quiet", action="store_true")
@@ -128,15 +141,38 @@ def main() -> None:
 
         # Step 1 -> model input tokens
         labels = resolve_target_pair(tokenizer, model)
-        prepared_batch = prepare_text_batch(tokenizer, clean_text, corrupt_text, labels)
+        if args.input_mode == "prepared":
+            prepared_batch = prepare_text_batch(tokenizer, clean_text, corrupt_text, labels)
+            dataloader = [prepared_batch]
+            pair_batch_preparer = None
+            summary_batch = prepared_batch
+        else:
+            raw_batch = RawPairBatch(
+                clean=[clean_text],
+                corrupt=[corrupt_text],
+                labels=labels,
+            )
+            pair_batch_preparer = HFProcessorAdapter(
+                processor=tokenizer,
+                device=backend.config.device,
+            )
+            dataloader = [raw_batch]
+            summary_batch = pair_batch_preparer.prepare_batch(
+                clean_samples=raw_batch.clean,
+                corrupt_samples=raw_batch.corrupt,
+                labels=raw_batch.labels,
+                meta=raw_batch.meta,
+            )
+
         write_model_input_summary(
-            prepared_batch,
+            summary_batch,
             output_dir / "model_input_summary.json",
             extra={
                 "raw_data": {
                     "clean_text": clean_text,
                     "corrupt_text": corrupt_text,
-                }
+                },
+                "input_mode": args.input_mode,
             },
         )
 
@@ -144,7 +180,8 @@ def main() -> None:
         run = attribute_from_dataloader(
             model=model,
             backend=backend,
-            dataloader=[prepared_batch],
+            dataloader=dataloader,
+            pair_batch_preparer=pair_batch_preparer,
             metric=metric_logit_diff,
             method=args.method,
             quiet=args.quiet,
@@ -157,6 +194,7 @@ def main() -> None:
             "modality": "text",
             "model_id": args.model_id,
             "method": args.method,
+            "input_mode": args.input_mode,
             "status": "pass",
             "seconds": time.time() - start,
             "graph_stats": dataclass_dict(graph_stats),
@@ -170,6 +208,7 @@ def main() -> None:
             "modality": "text",
             "model_id": args.model_id,
             "method": args.method,
+            "input_mode": args.input_mode,
             "status": "fail",
             "seconds": time.time() - start,
             "error_type": classify_error(exc),

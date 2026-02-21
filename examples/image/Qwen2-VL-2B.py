@@ -2,12 +2,14 @@
 """Image-text attribution example for Qwen2-VL-2B.
 
 Workflow:
-1. Raw image + question pairs -> processor -> model inputs
+1. Raw image + question pairs -> dataloader input
+   (`PreparedBatch` or `RawPairBatch + pair_batch_preparer`)
 2. Attribution (default: EAP)
 3. Graph visualization export (JSON + PNG)
 
 Run:
-  python examples/image/Qwen2-VL-2B.py --device cpu --dtype float32 --method EAP
+  python examples/image/Qwen2-VL-2B.py --device cpu --dtype float32 --method EAP --input-mode prepared
+  python examples/image/Qwen2-VL-2B.py --device cpu --dtype float32 --method EAP --input-mode raw
 """
 
 from __future__ import annotations
@@ -39,7 +41,9 @@ from examples.common import (  # noqa: E402
 
 from meap import (  # noqa: E402
     HFLLMBackend,
+    HFProcessorAdapter,
     PreparedBatch,
+    RawPairBatch,
     attribute_from_dataloader,
 )
 from meap.batch import validate_prepared_batch  # noqa: E402
@@ -56,6 +60,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--dtype", default="float32", choices=["float16", "bfloat16", "float32"])
     parser.add_argument("--topn", type=int, default=200)
+    parser.add_argument(
+        "--input-mode",
+        default="prepared",
+        choices=["prepared", "raw"],
+        help="Dataloader entry type: PreparedBatch or RawPairBatch + pair_batch_preparer.",
+    )
     parser.add_argument("--hf-token", default=None)
     parser.add_argument(
         "--image-size",
@@ -267,17 +277,39 @@ def main() -> None:
         labels = _resolve_white_black_pair(tokenizer)
 
         # Step 1 -> model input tensors via processor
-        prepared_batch = _prepare_image_pair_batch(
-            processor=processor,
-            clean_prompt=clean_prompt,
-            corrupt_prompt=corrupt_prompt,
-            clean_image=clean_image,
-            corrupt_image=corrupt_image,
-            labels=labels,
-            device=backend.config.device,
-        )
+        if args.input_mode == "prepared":
+            prepared_batch = _prepare_image_pair_batch(
+                processor=processor,
+                clean_prompt=clean_prompt,
+                corrupt_prompt=corrupt_prompt,
+                clean_image=clean_image,
+                corrupt_image=corrupt_image,
+                labels=labels,
+                device=backend.config.device,
+            )
+            dataloader = [prepared_batch]
+            pair_batch_preparer = None
+            summary_batch = prepared_batch
+        else:
+            raw_batch = RawPairBatch(
+                clean={"text": [clean_prompt], "images": [clean_image]},
+                corrupt={"text": [corrupt_prompt], "images": [corrupt_image]},
+                labels=labels,
+            )
+            pair_batch_preparer = HFProcessorAdapter(
+                processor=processor,
+                device=backend.config.device,
+            )
+            dataloader = [raw_batch]
+            summary_batch = pair_batch_preparer.prepare_batch(
+                clean_samples=raw_batch.clean,
+                corrupt_samples=raw_batch.corrupt,
+                labels=raw_batch.labels,
+                meta=raw_batch.meta,
+            )
+
         write_model_input_summary(
-            prepared_batch,
+            summary_batch,
             output_dir / "model_input_summary.json",
             extra={
                 "raw_data": {
@@ -289,7 +321,8 @@ def main() -> None:
                     "clean_prompt": clean_prompt,
                     "corrupt_prompt": corrupt_prompt,
                     "labels": labels.tolist(),
-                }
+                },
+                "input_mode": args.input_mode,
             },
         )
 
@@ -297,7 +330,8 @@ def main() -> None:
         run = attribute_from_dataloader(
             model=model,
             backend=backend,
-            dataloader=[prepared_batch],
+            dataloader=dataloader,
+            pair_batch_preparer=pair_batch_preparer,
             metric=_metric_white_black_logit_diff,
             method=args.method,
             quiet=args.quiet,
@@ -310,6 +344,7 @@ def main() -> None:
             "modality": "image",
             "model_id": args.model_id,
             "method": args.method,
+            "input_mode": args.input_mode,
             "status": "pass",
             "seconds": time.time() - start,
             "graph_stats": dataclass_dict(graph_stats),
@@ -323,6 +358,7 @@ def main() -> None:
             "modality": "image",
             "model_id": args.model_id,
             "method": args.method,
+            "input_mode": args.input_mode,
             "status": "fail",
             "seconds": time.time() - start,
             "error_type": classify_error(exc),

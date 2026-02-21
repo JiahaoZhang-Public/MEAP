@@ -1,64 +1,81 @@
-# Supported Models (Smoke-First)
+# Supported Models (V2 Core Set)
 
-This page tracks the current Hugging Face model support under the `HFLLMBackend` path.
+This page tracks the official Hugging Face support set for `HFLLMBackend`.
 
-Quick onboarding guide:
-- `docs/docs/NEW_MODEL_ONBOARDING.md`
-- `docs/docs/COMPATIBILITY_MATRIX.md`
-- `docs/docs/REPORT_SCHEMAS.md`
+Source of truth:
+- runtime catalog: `meap.catalog`
+- public query APIs:
+  - `list_supported_architectures()`
+  - `list_official_models()`
 
 ## Scope
 
 - New architecture onboarding is smoke-first.
-- Text Tier A parity target remains `HF ~= TLens ~= vendor` under strict thresholds.
-- VLM attribution remains language trunk only in this stage.
+- Text models can be parity-validated with vendor/TLens workflows.
+- Multimodal attribution remains language-trunk only in this stage.
 
-## Text Models
+## Official Architecture Routes
 
-| Model | Architecture Route | Smoke Status | Suggested Device |
+| Adapter Name | Arch Kind | Modalities | Tier |
 | --- | --- | --- | --- |
-| `gpt2` | GPT2-like adapter | Pass | CPU/GPU |
-| `distilgpt2` | GPT2-like adapter | Pass | CPU/GPU |
-| `facebook/opt-125m` | OPT-like adapter | Pass | CPU/GPU |
-| `Qwen/Qwen2-0.5B` | LLaMA-like adapter (GQA ungroup) | Pass | GPU recommended |
-| `TinyLlama/TinyLlama-1.1B-Chat-v1.0` | LLaMA-like adapter | Expected* | GPU recommended |
-| `tiiuae/falcon-rw-1b` | Falcon-like adapter | Expected* | GPU recommended |
-| `mosaicml/mpt-1b-redpajama-200b` | MPT-like adapter | Expected* | GPU recommended |
-| `google/gemma-2b` | LLaMA-like adapter | Expected* | GPU recommended |
+| `gpt2_like` | `gpt2_like` | text | core |
+| `opt_like` | `opt_like` | text | core |
+| `llama_like` | `llama_like` | text,multimodal | core |
 
-`Expected*`: compatible by structure and backend contract; validate in your environment via `scripts/smoke_hf_matrix.py`.
+## Official Model IDs (Core)
 
-## Multimodal Models
-
-| Model | Language Trunk Route | Smoke Status | Suggested Device |
+| Model ID | Adapter | Modality | Tier |
 | --- | --- | --- | --- |
-| `Qwen/Qwen2-VL-2B` | `language_model.layers` | Pass | GPU recommended (CPU functional) |
-| `llava-hf/llava-1.5-7b-hf` | `model.layers` + image projector path | Expected* | GPU required |
-| `HuggingFaceTB/SmolVLM-Instruct` | VLM wrapper + decoder trunk | Expected* | GPU recommended |
+| `gpt2` | `gpt2_like` | text | core |
+| `distilgpt2` | `gpt2_like` | text | core |
+| `facebook/opt-125m` | `opt_like` | text | core |
+| `Qwen/Qwen2-0.5B` | `llama_like` | text | core |
+| `Qwen/Qwen2-VL-2B` | `llama_like` | multimodal | core |
+| `llava-hf/llava-1.5-7b-hf` | `llama_like` | multimodal | core |
 
-If `HuggingFaceTB/SmolVLM-Instruct` is not compatible with your installed `transformers` version, use `Qwen/Qwen2-VL-2B-Instruct` as fallback and record the substitution in your run report.
+## Explicit Adapter/Trunk Selection
+
+V2 supports:
+- `adapter_name`
+- `language_trunk_path`
+
+Meaning:
+- `language_trunk_path`: path used to locate the language-model `nn.Module` inside your HF model.
+- `adapter_name`: structure adapter used after trunk selection to interpret that module stack.
+
+This enables local finetuned models to reuse official architecture routes:
+
+```python
+from meap.api import discover_circuit
+
+result = discover_circuit(
+    model_id_or_path="/path/to/local/model",
+    adapter_name="llama_like",
+    language_trunk_path="model.language_model.model",
+    clean_samples={"text": ["hello"]},
+    corrupt_samples={"text": ["world"]},
+    task="next_token",
+    labels=[1],
+)
+```
 
 ## Standard Commands
 
-### 1) Unified smoke matrix
+### 1) Unified smoke matrix (defaults use catalog core set)
 
 ```bash
 python scripts/smoke_hf_matrix.py \
-  --text-models gpt2,distilgpt2,facebook/opt-125m,Qwen/Qwen2-0.5B,TinyLlama/TinyLlama-1.1B-Chat-v1.0 \
-  --multimodal-models Qwen/Qwen2-VL-2B,llava-hf/llava-1.5-7b-hf,HuggingFaceTB/SmolVLM-Instruct \
   --device cpu \
-  --dtype bfloat16 \
+  --dtype float32 \
   --output reports/smoke_hf_matrix.json
 ```
 
-### 2) Stage matrix wrapper (lint + unit tests + smoke matrix)
+### 2) Stage matrix wrapper (lint + unit tests + matrix scripts)
 
 ```bash
 python scripts/test_stage_matrix.py \
-  --text-models gpt2,distilgpt2,facebook/opt-125m \
-  --multimodal-models Qwen/Qwen2-VL-2B \
   --device cpu \
-  --dtype bfloat16 \
+  --dtype float32 \
   --output reports/stage_matrix.json
 ```
 
@@ -70,36 +87,16 @@ python scripts/inspect_adapter_registry.py \
   --output reports/adapter_registry_qwen2.json
 ```
 
-## Add New Adapter (5 Minutes)
-
-1. Copy template: `meap/backend/adapters/_template.py`.
-2. Implement `match`, layer accessors, attention projection mapping, and `projection_spec`.
-3. Register adapter in `meap/backend/registry.py` default adapter list (or call `register_architecture_adapter`).
-4. Add tests:
-- adapter registry selection test (`tests/test_adapter_registry.py`)
-- backend smoke test for the new architecture (`tests/test_backend_<arch>.py`)
-5. Run:
-
-```bash
-ruff check meap tests scripts
-pytest -q
-python scripts/smoke_hf_matrix.py --text-models <new-model-id> --multimodal-models \"\" --device cpu --dtype float32
-```
-
 ## Common Failures and Fixes
 
-1. `Image features and image tokens do not match`
+1. `Unsupported HF architecture for HFLLMBackend`
+- Cause: selected trunk/adapter does not match model modules.
+- Fix: inspect diagnostics (`candidate_backbones`, `adapter_attempts`, `selection_error`) and adjust `adapter_name` / `language_trunk_path`.
+
+2. `Image features and image tokens do not match`
 - Cause: processor prompt template or modality placeholders not aligned.
-- Fix: use processor-specific chat template path, keep clean/corrupt modality layout identical.
+- Fix: keep clean/corrupt modality layout identical and use processor-specific prompt construction.
 
-2. `Unrecognized configuration class ... for AutoModelForCausalLM`
-- Cause: VLM loaded with text-only auto class.
-- Fix: use `AutoModelForImageTextToText` / `AutoModelForVision2Seq`.
-
-3. `Unsupported HF architecture for HFLLMBackend`
-- Cause: decoder backbone modules do not match registered adapters.
-- Fix: add/extend architecture adapter and include missing module-path diagnostics.
-
-4. OOM on multimodal models
+3. OOM on multimodal models
 - Cause: model size or dtype/device mismatch.
 - Fix: prefer GPU + `bfloat16`/`float16`, reduce batch to 1, start with smoke-only runs.

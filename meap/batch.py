@@ -46,16 +46,6 @@ class RawPairBatch:
     meta: Optional[Dict[str, Any]] = None
 
 
-@dataclass
-class DictPairBatch:
-    """Dict-style alias for dataloader output compatibility."""
-
-    clean: Any
-    corrupt: Any
-    labels: Any
-    meta: Optional[Dict[str, Any]] = None
-
-
 class PairBatchPreparer(Protocol):
     def prepare_batch(
         self,
@@ -68,7 +58,7 @@ class PairBatchPreparer(Protocol):
         ...
 
 
-BatchLike = Union[PreparedBatch, RawPairBatch, DictPairBatch, Mapping[str, Any], Tuple[Any, Any, Any], Tuple[Any, Any, Any, Any]]
+BatchLike = Union[PreparedBatch, RawPairBatch]
 
 
 def _sequence_shape(inputs: Mapping[str, Any]) -> Tuple[int, int]:
@@ -266,7 +256,7 @@ def iter_prepared_batches(
         if pair_batch_preparer is None:
             raise TypeError(
                 "Raw clean/corrupt batches require a pair_batch_preparer. "
-                "Pass processor=... via API or provide your custom preparer via "
+                "Provide your custom preparer via "
                 "iter_prepared_batches(..., pair_batch_preparer=...)."
             )
         return pair_batch_preparer.prepare_batch(clean, corrupt, labels, meta=meta)
@@ -281,32 +271,7 @@ def iter_prepared_batches(
             yield _prepare_raw_pair(batch.clean, batch.corrupt, batch.labels, meta=batch.meta)
             continue
 
-        if isinstance(batch, DictPairBatch):
-            yield _prepare_raw_pair(batch.clean, batch.corrupt, batch.labels, meta=batch.meta)
-            continue
-
-        if isinstance(batch, Mapping):
-            required = {"clean", "corrupt", "labels"}
-            if required.issubset(batch.keys()):
-                yield _prepare_raw_pair(
-                    batch["clean"],
-                    batch["corrupt"],
-                    batch["labels"],
-                    meta=batch.get("meta"),
-                )
-                continue
-            raise TypeError(
-                "Mapping batches must include keys {'clean', 'corrupt', 'labels'} "
-                "(optional 'meta')."
-            )
-
-        if not isinstance(batch, tuple) or len(batch) not in (3, 4):
-            raise TypeError(
-                "Expected one of: PreparedBatch, RawPairBatch, dict(clean/corrupt/labels), "
-                "or tuple(clean, corrupt, labels[, meta])."
-            )
-
-        clean_data, corrupt_data, labels = batch[:3]
-        meta = batch[3] if len(batch) == 4 else None
-
-        yield _prepare_raw_pair(clean_data, corrupt_data, labels, meta=meta)
+        raise TypeError(
+            "Expected one of: PreparedBatch or RawPairBatch. "
+            "V2 no longer accepts dict/tuple dataloader entries."
+        )

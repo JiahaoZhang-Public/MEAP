@@ -2,12 +2,14 @@
 """Audio attribution example for Ultravox.
 
 Workflow:
-1. Raw audio + dialogue turns -> pipeline preprocess -> model inputs
+1. Raw audio + dialogue turns -> dataloader input
+   (`PreparedBatch` or `RawPairBatch + pair_batch_preparer`)
 2. Attribution (default: EAP)
 3. Graph visualization export (JSON + PNG)
 
 Run:
-  python examples/audio/ultravox.py --device cpu --dtype float32 --method EAP
+  python examples/audio/ultravox.py --device cpu --dtype float32 --method EAP --input-mode prepared
+  python examples/audio/ultravox.py --device cpu --dtype float32 --method EAP --input-mode raw
 """
 
 from __future__ import annotations
@@ -44,6 +46,7 @@ from examples.common import (  # noqa: E402
 from meap import (  # noqa: E402
     HFLLMBackend,
     PreparedBatch,
+    RawPairBatch,
     attribute_from_dataloader,
 )
 from meap.batch import PairBatchPreparer, validate_prepared_batch  # noqa: E402
@@ -146,6 +149,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--dtype", default="float32", choices=["float16", "bfloat16", "float32"])
     parser.add_argument("--topn", type=int, default=200)
+    parser.add_argument(
+        "--input-mode",
+        default="prepared",
+        choices=["prepared", "raw"],
+        help="Dataloader entry type: PreparedBatch or RawPairBatch + pair_batch_preparer.",
+    )
     parser.add_argument("--hf-token", default=None)
     parser.add_argument("--audio-path", default="")
     parser.add_argument("--audio-url", default=DEFAULT_AUDIO_URL)
@@ -240,15 +249,32 @@ def main() -> None:
             },
         ]
         labels = resolve_target_pair(getattr(infer_pipe, "tokenizer", None), model)
+        clean_sample = {"audio": audio, "sampling_rate": sr, "turns": turns_clean}
+        corrupt_sample = {"audio": audio, "sampling_rate": sr, "turns": turns_corrupt}
 
         # Step 1 -> model inputs
-        prepared_batch = pair_preparer.prepare_batch(
-            clean_samples={"audio": audio, "sampling_rate": sr, "turns": turns_clean},
-            corrupt_samples={"audio": audio, "sampling_rate": sr, "turns": turns_corrupt},
-            labels=labels,
-        )
+        if args.input_mode == "prepared":
+            prepared_batch = pair_preparer.prepare_batch(
+                clean_samples=clean_sample,
+                corrupt_samples=corrupt_sample,
+                labels=labels,
+            )
+            dataloader = [prepared_batch]
+            pair_batch_preparer = None
+            summary_batch = prepared_batch
+        else:
+            raw_batch = RawPairBatch(clean=clean_sample, corrupt=corrupt_sample, labels=labels)
+            dataloader = [raw_batch]
+            pair_batch_preparer = pair_preparer
+            summary_batch = pair_preparer.prepare_batch(
+                clean_samples=raw_batch.clean,
+                corrupt_samples=raw_batch.corrupt,
+                labels=raw_batch.labels,
+                meta=raw_batch.meta,
+            )
+
         write_model_input_summary(
-            prepared_batch,
+            summary_batch,
             output_dir / "model_input_summary.json",
             extra={
                 "raw_data": {
@@ -257,7 +283,8 @@ def main() -> None:
                     "sampling_rate": sr,
                     "clean_turns": turns_clean,
                     "corrupt_turns": turns_corrupt,
-                }
+                },
+                "input_mode": args.input_mode,
             },
         )
 
@@ -265,7 +292,8 @@ def main() -> None:
         run = attribute_from_dataloader(
             model=model,
             backend=backend,
-            dataloader=[prepared_batch],
+            dataloader=dataloader,
+            pair_batch_preparer=pair_batch_preparer,
             metric=metric_logit_diff,
             method=args.method,
             quiet=args.quiet,
@@ -278,6 +306,7 @@ def main() -> None:
             "modality": "audio",
             "model_id": args.model_id,
             "method": args.method,
+            "input_mode": args.input_mode,
             "status": "pass",
             "seconds": time.time() - start,
             "graph_stats": dataclass_dict(graph_stats),
@@ -291,6 +320,7 @@ def main() -> None:
             "modality": "audio",
             "model_id": args.model_id,
             "method": args.method,
+            "input_mode": args.input_mode,
             "status": "fail",
             "seconds": time.time() - start,
             "error_type": classify_error(exc),

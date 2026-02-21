@@ -3,9 +3,12 @@
 Per-modality end-to-end attribution examples using `meap`.
 
 Each example script follows the same 3-stage flow:
-1. Raw data -> processing -> model input tensors (`PreparedBatch`)
+1. Raw data -> processing -> dataloader input
+   (`PreparedBatch` or `RawPairBatch + pair_batch_preparer`, selected by `--input-mode`)
 2. Attribution (default `EAP`, `--method` also accepts other methods)
 3. Graph visualization export (`graph_full.json`, `graph_topn.json`, `graph_topn.png`)
+
+`--input-mode` defaults to `prepared`.
 
 Outputs are saved under each modality folder and retained by run name/timestamp.
 
@@ -33,7 +36,8 @@ Visualization dependency:
 Script: `examples/text/gpt2.py`
 
 ```bash
-python examples/text/gpt2.py --device cpu --dtype float32 --method EAP
+python examples/text/gpt2.py --device cpu --dtype float32 --method EAP --input-mode prepared
+python examples/text/gpt2.py --device cpu --dtype float32 --method EAP --input-mode raw
 ```
 
 Output folder:
@@ -44,7 +48,8 @@ Output folder:
 Script: `examples/image/Qwen2-VL-2B.py`
 
 ```bash
-python examples/image/Qwen2-VL-2B.py --dtype float16 --method EAP --image-size 128
+python examples/image/Qwen2-VL-2B.py --dtype float16 --method EAP --image-size 128 --input-mode prepared
+python examples/image/Qwen2-VL-2B.py --dtype float16 --method EAP --image-size 128 --input-mode raw
 ```
 
 Notes:
@@ -59,7 +64,8 @@ Non-empty top200 variant:
 - Uses root-aware pruning (`input_layer0`) to avoid empty top200 pruned graph.
 
 ```bash
-python examples/image/Qwen2-VL-2B_nonempty.py --dtype float16 --method EAP --image-size 128
+python examples/image/Qwen2-VL-2B_nonempty.py --dtype float16 --method EAP --image-size 128 --input-mode prepared
+python examples/image/Qwen2-VL-2B_nonempty.py --dtype float16 --method EAP --image-size 128 --input-mode raw
 ```
 
 ## Audio
@@ -67,7 +73,8 @@ python examples/image/Qwen2-VL-2B_nonempty.py --dtype float16 --method EAP --ima
 Script: `examples/audio/ultravox.py`
 
 ```bash
-python examples/audio/ultravox.py --dtype float32 --method EAP
+python examples/audio/ultravox.py --dtype float32 --method EAP --input-mode prepared
+python examples/audio/ultravox.py --dtype float32 --method EAP --input-mode raw
 ```
 
 Optional audio source override:
@@ -82,7 +89,8 @@ Non-empty top200 variant:
 - Uses root-aware pruning (`input_layer0`) to avoid empty top200 pruned graph.
 
 ```bash
-python examples/audio/ultravox_nonempty.py --dtype float32 --method EAP
+python examples/audio/ultravox_nonempty.py --dtype float32 --method EAP --input-mode prepared
+python examples/audio/ultravox_nonempty.py --dtype float32 --method EAP --input-mode raw
 ```
 
 ## Clean/Corrupt Alignment Guide

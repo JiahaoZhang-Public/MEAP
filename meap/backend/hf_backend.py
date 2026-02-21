@@ -39,6 +39,7 @@ class HFLLMBackend:
         ungroup_gqa: bool = True,
         adapter_registry: Optional[Sequence[AdapterType]] = None,
         adapter_name: Optional[str] = None,
+        language_trunk_path: Optional[str] = None,
         strict_arch: bool = True,
     ):
         if not hasattr(model, "config"):
@@ -59,9 +60,10 @@ class HFLLMBackend:
         self._adapter, resolution, diagnostics = self._resolve_architecture(
             self.model,
             adapter_name=adapter_name,
+            language_trunk_path=language_trunk_path,
         )
         self._base_model = resolution.base_model
-        self._backbone_path = resolution.path
+        self._language_trunk_path = resolution.path
         self._arch_kind = resolution.arch_kind
         self._resolution_diagnostics = diagnostics
         self._layers = resolution.layers
@@ -96,8 +98,8 @@ class HFLLMBackend:
         return self._adapter.name
 
     @property
-    def backbone_path(self) -> str:
-        return self._backbone_path
+    def language_trunk_path(self) -> str:
+        return self._language_trunk_path
 
     @property
     def arch_kind(self) -> str:
@@ -259,25 +261,33 @@ class HFLLMBackend:
         model: torch.nn.Module,
         *,
         adapter_name: Optional[str] = None,
+        language_trunk_path: Optional[str] = None,
     ) -> Tuple[ArchitectureAdapter, AdapterResolution, Dict[str, Any]]:
         try:
             adapter, resolved, diagnostics = resolve_adapter_resolution(
                 model,
                 self._adapter_registry,
                 adapter_name=adapter_name,
+                language_trunk_path=language_trunk_path,
             )
             return adapter, resolved, diagnostics
         except ResolutionError as exc:
             if self._strict_arch:
                 summary = self._diagnostics_summary(exc.diagnostics)
                 raise ValueError(f"{exc} Resolution summary: {summary}") from exc
-            diag = inspect_model_architecture(model, self._adapter_registry)
+            diag = inspect_model_architecture(
+                model,
+                self._adapter_registry,
+                adapter_name=adapter_name,
+                language_trunk_path=language_trunk_path,
+            )
             selected = diag.get("selected")
             if selected is not None:
                 adapter, resolved, diagnostics = resolve_adapter_resolution(
                     model,
                     self._adapter_registry,
                     adapter_name=selected["adapter"],
+                    language_trunk_path=selected.get("path"),
                 )
                 return adapter, resolved, diagnostics
             raise ValueError(f"{exc} Diagnostics: {diag.get('selection_error', 'no match')}") from exc

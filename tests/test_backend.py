@@ -61,7 +61,7 @@ def test_hf_backend_normalizes_llama_config_and_hook_scaffold():
     model = _tiny_llama_lm()
     backend = HFLLMBackend(model)
 
-    assert backend.backbone_path == "model.model"
+    assert backend.language_trunk_path == "model.model"
     assert backend.arch_kind == "llama_like"
     assert backend.config.n_layers == 1
     assert backend.config.n_heads == 4
@@ -86,7 +86,7 @@ def test_hf_backend_supports_gpt2_and_builds_hook_scaffold():
     )
     backend = HFLLMBackend(gpt2)
 
-    assert backend.backbone_path == "model.transformer"
+    assert backend.language_trunk_path == "model.transformer"
     assert backend.arch_kind == "gpt2_like"
     assert backend.config.n_layers == 1
     assert backend.config.n_heads == 2
@@ -112,11 +112,28 @@ def test_hf_backend_supports_adapter_name_override():
     assert backend.adapter_name == "gpt2_like"
 
 
+def test_hf_backend_supports_explicit_language_trunk_path():
+    gpt2 = GPT2LMHeadModel(
+        GPT2Config(n_layer=1, n_head=2, n_embd=16, n_positions=32, vocab_size=128)
+    )
+    backend = HFLLMBackend(gpt2, adapter_name="gpt2_like", language_trunk_path="model.transformer")
+    assert backend.adapter_name == "gpt2_like"
+    assert backend.language_trunk_path == "model.transformer"
+
+
+def test_hf_backend_rejects_invalid_language_trunk_path():
+    gpt2 = GPT2LMHeadModel(
+        GPT2Config(n_layer=1, n_head=2, n_embd=16, n_positions=32, vocab_size=128)
+    )
+    with pytest.raises(ValueError, match="language_trunk_path"):
+        HFLLMBackend(gpt2, language_trunk_path="model.not_a_real_path")
+
+
 def test_hf_backend_rejects_unknown_adapter_name():
     gpt2 = GPT2LMHeadModel(
         GPT2Config(n_layer=1, n_head=2, n_embd=16, n_positions=32, vocab_size=128)
     )
-    with pytest.raises(ValueError, match="Unsupported HF architecture"):
+    with pytest.raises(ValueError, match="Unknown adapter_name"):
         HFLLMBackend(gpt2, adapter_name="does_not_exist")
 
 
@@ -231,7 +248,7 @@ def test_hf_backend_exposes_resolution_diagnostics_schema():
     assert "selected" in diagnostics
     selected = diagnostics["selected"]
     assert selected["adapter"] == backend.adapter_name
-    assert selected["path"] == backend.backbone_path
+    assert selected["path"] == backend.language_trunk_path
 
 
 def test_attribute_smoke_with_hf_backend_succeeds():

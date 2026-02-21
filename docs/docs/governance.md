@@ -41,6 +41,9 @@ twine check dist/*
 
 - Stable APIs are documented in `docs/docs/API_STABILITY.md`.
 - Internal modules may change in minor releases.
+- V2 high-level input contract is strict:
+  - accepted: `PreparedBatch`, `RawPairBatch`
+  - rejected: dict/tuple dataloader forms in high-level APIs
 - Deprecated symbols must emit `DeprecationWarning` with:
   - deprecation version
   - planned removal version
@@ -50,6 +53,13 @@ twine check dist/*
 
 - Text models: parity-first for required methods.
 - Multimodal models: smoke-first on language trunk.
+- Official support set must be declared in:
+  - `meap/catalog.py`
+  - `docs/docs/SUPPORTED_MODELS.md`
+- Community adapter path:
+  - runtime registration via `register_architecture_adapter(...)`
+- Official adapter path:
+  - upstream PR with adapter + catalog + tests + docs
 - New model onboarding must follow:
   - `docs/docs/NEW_MODEL_ONBOARDING.md`
 

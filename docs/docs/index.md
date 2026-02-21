@@ -4,6 +4,13 @@ Welcome to `meap` (Multimodal Edge Attribution Patching).
 
 This documentation is organized by **what a new user should read first**.
 
+Current baseline:
+- API contract: **v2**
+- High-level input modes: `PreparedBatch` or `RawPairBatch + pair_batch_preparer`
+- API lanes:
+  - Lane A (recommended): `discover_circuit(...)` for model-id/path based routing + attribution.
+  - Lane B (advanced): `attribute_from_dataloader(...)` with explicit prebuilt `backend`.
+
 ## Start Here
 
 1. Package quickstart:
@@ -43,7 +50,3 @@ Active documents:
 - `RELEASE_PROCESS.md`
 - `NEW_MODEL_ONBOARDING.md`
 - `governance.md`
-
-Archived documents (cache):
-- `docs/cache/STAGED_IMPLEMENTATION.md`
-- `docs/cache/REFACTOR_DESIGN.md`

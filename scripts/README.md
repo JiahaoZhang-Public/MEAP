@@ -3,7 +3,6 @@
 This directory is split into:
 
 - active scripts (top-level `scripts/`)
-- archived/legacy scripts (`scripts/cache/`)
 
 ## Active Scripts
 
@@ -72,13 +71,5 @@ For per-model, per-modality walkthrough scripts, use:
 - `examples/text/gpt2.py`
 - `examples/image/Qwen2-VL-2B.py`
 - `examples/audio/ultravox.py`
-
-## Archived Scripts
-
-Archived scripts are kept for historical/debug reference and are not part of the current recommended workflow:
-
-- `scripts/cache/e2e_llava_attribution.py`
-- `scripts/cache/e2e_qwen2_vl_smoke.py`
-- `scripts/cache/backend_unified_legacy.py`
 
 Use active scripts for current CI/reproducible runs.

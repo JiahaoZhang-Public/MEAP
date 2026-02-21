@@ -23,11 +23,12 @@ def test_stable_public_api_symbols_are_exported():
         "TLensBackend",
         "PreparedBatch",
         "RawPairBatch",
-        "DictPairBatch",
         "HFProcessorAdapter",
         "Graph",
         "register_architecture_adapter",
         "inspect_model_architecture",
+        "list_supported_architectures",
+        "list_official_models",
         "resolve_backend",
     }
     assert expected.issubset(set(pkg.__all__))

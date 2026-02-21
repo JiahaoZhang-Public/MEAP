@@ -23,7 +23,7 @@ Development install:
 pip install -e ".[dev,multimodal,viz,docs]"
 ```
 
-## Stable API Contract (v1)
+## Stable API Contract (v2)
 
 Use these as stable entrypoints:
 
@@ -38,9 +38,10 @@ Use these as stable entrypoints:
   - `evaluate_baseline_from_dataloader`
 - Core public objects:
   - `HFLLMBackend`, `TLensBackend`
-  - `PreparedBatch`, `RawPairBatch`, `DictPairBatch`
+  - `PreparedBatch`, `RawPairBatch`
   - `HFProcessorAdapter`
   - `Graph`
+  - `list_supported_architectures`, `list_official_models`
   - `register_architecture_adapter`, `inspect_model_architecture`, `resolve_backend`
 
 Internal (not stability-guaranteed) modules:
@@ -97,11 +98,8 @@ Your dataloader yields `PreparedBatch` objects directly.
 
 ### Mode B: user provides raw clean/corrupt + explicit preparer
 
-Your dataloader yields raw pair data, and you pass one of:
-- `processor=...` (wrapped into `HFProcessorAdapter`), or
-- `pair_batch_preparer=...` (custom preparer).
-
-`processor` and `pair_batch_preparer` are mutually exclusive.
+Your dataloader yields `RawPairBatch` entries and you pass `pair_batch_preparer=...`
+(for example `HFProcessorAdapter(processor=...)`).
 
 ## API/UX Rules (PR3)
 
@@ -109,7 +107,7 @@ Your dataloader yields raw pair data, and you pass one of:
 
 Only two input styles are supported:
 1. `PreparedBatch` (fully user-prepared tensors), or
-2. raw clean/corrupt samples + explicit `processor` or explicit `pair_batch_preparer`.
+2. `RawPairBatch` + explicit `pair_batch_preparer`.
 
 ### Explicitly Disallowed Implicit Behavior
 
@@ -119,7 +117,7 @@ Only two input styles are supported:
   - `evaluate_graph_from_dataloader`
   - `evaluate_baseline_from_dataloader`
 - If truncation is needed, do it explicitly in your own preprocessing:
-  - pass `processor_kwargs={"truncation": True, "max_length": ...}`, or
+  - pass `processor_kwargs={"truncation": True, "max_length": ...}` into `HFProcessorAdapter`, or
   - truncate in your custom `pair_batch_preparer`, or
   - build `PreparedBatch` directly with already-truncated tensors.
 
@@ -136,9 +134,13 @@ Validation is enforced by `validate_prepared_batch` in `batch.py`.
 ## High-level API Notes
 
 `attribute_from_dataloader` / `evaluate_*_from_dataloader`:
-- always require an explicit backend for non-TransformerLens models,
+- require explicit `backend=...`,
 - no implicit sequence truncation; `max_length` is not applied by API,
 - truncation should be performed inside your processor/preparer.
+
+`discover_circuit(...)`:
+- recommended one-shot Lane A for model-id/path driven workflow,
+- performs HF route selection (automatic or explicit via `adapter_name` + `language_trunk_path`).
 
 ## Backend Architecture Inference
 
@@ -150,6 +152,12 @@ Validation is enforced by `validate_prepared_batch` in `batch.py`.
 Diagnostic helpers:
 - `inspect_model_architecture(model)`
 - `register_architecture_adapter(...)`
+- `list_supported_architectures()`
+- `list_official_models()`
+
+Route term definitions:
+- `language_trunk_path`: path used to locate the language-model `nn.Module` inside a Hugging Face model.
+- `adapter_name`: architecture adapter that interprets structure inside the selected language trunk.
 
 ## Methods
 
@@ -190,6 +198,8 @@ from meap.api import discover_circuit
 
 result = discover_circuit(
     model_id_or_path=\"openai-community/gpt2\",  # HF hub id or local model directory
+    adapter_name=\"gpt2_like\",                  # optional
+    language_trunk_path=\"model.transformer\",   # optional
     clean_samples={\"text\": [\"The capital of France is\"]},
     corrupt_samples={\"text\": [\"The capital of Germany is\"]},
     task=\"next_token\",
@@ -245,17 +255,18 @@ result = attribute_from_dataloader(
 )
 ```
 
-### B) Raw clean/corrupt with explicit processor
+### B) Raw clean/corrupt with explicit `pair_batch_preparer`
 
 ```python
-from meap import attribute_from_dataloader, HFLLMBackend
+from meap import HFProcessorAdapter, RawPairBatch, attribute_from_dataloader, HFLLMBackend
 
 backend = HFLLMBackend(model, tokenizer=getattr(processor, "tokenizer", None))
+preparer = HFProcessorAdapter(processor=processor, device=backend.config.device)
 result = attribute_from_dataloader(
     model=model,
     backend=backend,
-    dataloader=[{"clean": clean_samples, "corrupt": corrupt_samples, "labels": labels}],
-    processor=processor,
+    dataloader=[RawPairBatch(clean=clean_samples, corrupt=corrupt_samples, labels=labels)],
+    pair_batch_preparer=preparer,
     metric=my_metric,
     method="smoke",
 )
@@ -319,15 +330,13 @@ Unified matrix entrypoint:
 
 Default text parity models (vendor/TLens aligned):
 - `gpt2`
-- `Qwen/Qwen2-0.5B`
+- `distilgpt2`
 - `facebook/opt-125m`
-- `TinyLlama/TinyLlama-1.1B-Chat-v1.0`
+- `Qwen/Qwen2-0.5B`
 
 Default multimodal smoke models:
 - `Qwen/Qwen2-VL-2B`
 - `llava-hf/llava-1.5-7b-hf`
-- `HuggingFaceTB/SmolVLM-Instruct`
-- `Qwen/Qwen2-Audio-7B` (audio fallback supported via `--audio-fallback-model`)
 
 The stage matrix writes a unified JSON report with:
 - model-level results,
