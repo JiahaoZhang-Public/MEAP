@@ -1,4 +1,4 @@
-# API Stability (v2, AttributionModel MVP)
+# API Stability (v2, v1.4 Cleanup)
 
 This page defines the supported package surface for `meap` v2.
 
@@ -15,15 +15,7 @@ Stable symbols:
 - `AttributionResult`
 - `RouteInfo`
 - `PreparedInputLike`
-- `AttributionRunResult`
 - `TaskSpec`
-- `CircuitEdgeSummary`
-- `CircuitRunResult`
-- `evaluate_graph_from_dataloader`
-- `evaluate_baseline_from_dataloader`
-- compatibility wrappers (deprecated):
-  - `attribute_from_dataloader`
-  - `discover_circuit`
 
 Stable package-level objects:
 - `HFLLMBackend`, `TLensBackend`
@@ -52,21 +44,22 @@ Core `AttributionModel` APIs do not accept:
 - `processor`
 - `pair_batch_preparer`
 
-## Compatibility Lane (Deprecated)
+## Legacy Compatibility Lane
 
-1. High-level dataloader input is now strict:
+The following APIs remain available for migration but are no longer primary:
+- `discover_circuit(...)`
+- `attribute_from_dataloader(...)`
+- `evaluate_graph_from_dataloader(...)`
+- `evaluate_baseline_from_dataloader(...)`
+
+Compatibility behavior:
+- high-level dataloader input is strict:
 - accepted: `PreparedBatch`, `RawPairBatch`
 - removed: dict/tuple dataloader entries and `DictPairBatch`
 
-2. High-level API no longer accepts direct `processor=...`:
+- high-level API no longer accepts direct `processor=...`:
 - use `pair_batch_preparer=...`
 - recommended helper: `HFProcessorAdapter(processor=...)`
-
-Deprecated compatibility wrappers:
-- `discover_circuit(...)`
-- `attribute_from_dataloader(...)`
-
-These wrappers preserve behavior for migration and emit `DeprecationWarning`.
 
 ## HF Resolution Contract
 
@@ -81,7 +74,7 @@ Resolution order:
 
 Where route selection happens:
 - `AttributionModel.from_pretrained(...)` (primary), or
-- `discover_circuit(...)` (deprecated compatibility), or
+- `discover_circuit(...)` (legacy compatibility), or
 - `HFLLMBackend(model, adapter_name=..., language_trunk_path=...)` initialization.
 
 Diagnostics fields are stable:
@@ -100,23 +93,10 @@ The following modules are implementation detail APIs and may change in minor rel
 
 ## Deprecation Policy
 
-Deprecated top-level symbols emit `DeprecationWarning`.
-
-Current deprecations:
-- Deprecated since: `1.0.0`
-- Planned top-level removal: `1.2.0`
-
-Symbols:
-- `get_real_edge_scores`
-- `get_scores_clean_corrupted`
-- `get_scores_eap`
-- `get_scores_eap_ig`
-- `get_scores_exact`
-- `get_scores_ig_activations`
-- `get_scores_smoke`
-- `build_default_llava_processor`
-- `prepare_llava_token_pair_batch`
+Top-level deprecated helpers from the pre-v2 era were removed in `v1.4.0`:
+- score helper re-exports (`get_scores_*`, `get_real_edge_scores`)
+- preparer helper re-exports (`build_default_llava_processor`, `prepare_llava_token_pair_batch`)
 
 Migration guidance:
-- Import these from internal modules only if you need low-level control.
-- Prefer high-level APIs in `meap.api` for forward compatibility.
+- import low-level helpers from implementation modules directly if needed
+- prefer `AttributionModel` for stable user-facing workflows

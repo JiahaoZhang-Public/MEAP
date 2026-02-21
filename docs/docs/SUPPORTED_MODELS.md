@@ -46,16 +46,18 @@ Meaning:
 This enables local finetuned models to reuse official architecture routes:
 
 ```python
-from meap.api import discover_circuit
+from meap import AttributionModel, TaskSpec
 
-result = discover_circuit(
-    model_id_or_path="/path/to/local/model",
+am = AttributionModel.from_pretrained(
+    "/path/to/local/model",
     adapter_name="llama_like",
     language_trunk_path="model.language_model.model",
-    clean_samples={"text": ["hello"]},
-    corrupt_samples={"text": ["world"]},
-    task="next_token",
-    labels=[1],
+)
+
+result = am.attribute(
+    batches=[prepared_batch],
+    task=TaskSpec(task="next_token", labels=[1]),
+    method="smoke",
 )
 ```
 

@@ -10,7 +10,6 @@ Current baseline:
 - Core contract:
   - `model -> language trunk/graph`
   - `prepared inputs -> attribution`
-- Compatibility lane (deprecated): `discover_circuit(...)`, `attribute_from_dataloader(...)`
 
 ## Start Here
 
@@ -26,22 +25,19 @@ Primary entrypoint:
 AttributionModel API design and scope:
 - `docs/docs/ATTRIBUTION_MODEL_API_DESIGN.md`
 
-3. Runtime compatibility matrix:
-- `docs/docs/COMPATIBILITY_MATRIX.md`
-
-4. Model support and smoke matrix:
+3. Model support and smoke matrix:
 - `docs/docs/SUPPORTED_MODELS.md`
 
-5. Report schema contract:
+4. Report schema contract:
 - `docs/docs/REPORT_SCHEMAS.md`
 
-6. Release process:
+5. Release process:
 - `docs/docs/RELEASE_PROCESS.md`
 
-7. Add a new model in 5 minutes:
+6. Add a new model in 5 minutes:
 - `docs/docs/NEW_MODEL_ONBOARDING.md`
 
-8. Scripts guide:
+7. Scripts guide:
 - `scripts/README.md`
 
 ## Documentation Status
@@ -49,7 +45,6 @@ AttributionModel API design and scope:
 Active documents:
 - `API_STABILITY.md`
 - `ATTRIBUTION_MODEL_API_DESIGN.md`
-- `COMPATIBILITY_MATRIX.md`
 - `SUPPORTED_MODELS.md`
 - `REPORT_SCHEMAS.md`
 - `RELEASE_PROCESS.md`

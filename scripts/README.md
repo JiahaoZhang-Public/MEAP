@@ -60,14 +60,7 @@ python scripts/real_attribution_modalities.py \
   --output-dir reports/real_attribution
 ```
 
-8. `scripts/discover_circuit_minimal.py`
-- Purpose: one-shot `discover_circuit` demo with HF model id or local path.
-- Typical use:
-```bash
-python scripts/discover_circuit_minimal.py --model-ref openai-community/gpt2 --task next_token --method EAP
-```
-
-9. `scripts/route_graph_matrix.py`
+8. `scripts/route_graph_matrix.py`
 - Purpose: verify `model -> language trunk -> graph/hook` route resolution across text and multimodal model sets.
 - Optional: add `--run-attribute-smoke` to run one minimal `PreparedBatch` attribution smoke (`method=smoke`) per model.
 - Output schema: `report_type=route_graph_matrix`, `schema_version=1.0.0`.
@@ -83,6 +76,7 @@ python scripts/route_graph_matrix.py \
 ```
 
 For per-model, per-modality walkthrough scripts, use:
+- `examples/text/attribution_model_prepared.py`
 - `examples/text/gpt2.py`
 - `examples/image/Qwen2-VL-2B.py`
 - `examples/audio/ultravox.py`

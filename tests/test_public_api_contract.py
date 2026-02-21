@@ -1,7 +1,5 @@
 import importlib
 
-import pytest
-
 import meap as pkg
 
 attribute_module = importlib.import_module("meap.attribute")
@@ -38,14 +36,21 @@ def test_stable_public_api_symbols_are_exported():
     assert expected.issubset(set(pkg.__all__))
 
 
-def test_deprecated_top_level_score_helpers_emit_warning(monkeypatch):
-    sentinel = object()
-    monkeypatch.setattr(pkg, "_get_scores_smoke", lambda *args, **kwargs: sentinel)
-
-    with pytest.warns(DeprecationWarning, match="removed in 1.2.0"):
-        result = pkg.get_scores_smoke("dummy")
-
-    assert result is sentinel
+def test_removed_deprecated_top_level_helpers_are_not_exported():
+    removed = {
+        "get_real_edge_scores",
+        "get_scores_clean_corrupted",
+        "get_scores_eap",
+        "get_scores_eap_ig",
+        "get_scores_exact",
+        "get_scores_ig_activations",
+        "get_scores_smoke",
+        "build_default_llava_processor",
+        "prepare_llava_token_pair_batch",
+    }
+    assert removed.isdisjoint(set(pkg.__all__))
+    for symbol in removed:
+        assert not hasattr(pkg, symbol)
 
 
 def test_internal_modules_are_marked_internal():

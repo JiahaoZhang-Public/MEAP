@@ -2,6 +2,29 @@
 
 All notable changes to this project are documented here.
 
+## [1.4.0] - 2026-02-21
+
+### Breaking
+- Removed long-deprecated top-level helper re-exports from `meap` package root:
+  - score helpers (`get_real_edge_scores`, `get_scores_*`)
+  - preparer helpers (`build_default_llava_processor`, `prepare_llava_token_pair_batch`)
+
+### Features
+- Standardized `scripts/api_minimal_examples.py` to run through `AttributionModel` core path.
+- Added optional attribution smoke (`--run-attribute-smoke`) in route matrix validation workflow for release checks.
+
+### Cleanup
+- Removed redundant example/script variants:
+  - `examples/image/Qwen2-VL-2B_nonempty.py`
+  - `examples/audio/ultravox_nonempty.py`
+  - `scripts/discover_circuit_minimal.py`
+- Removed obsolete docs page:
+  - `docs/docs/COMPATIBILITY_MATRIX.md`
+
+### Docs
+- Reorganized and simplified top-level docs/README surfaces to be prepared-input-first and release-oriented.
+- Updated onboarding/support/release docs to prefer `AttributionModel` language-trunk workflow.
+
 ## [1.3.0] - 2026-02-21
 
 ### Features

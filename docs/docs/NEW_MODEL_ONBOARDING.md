@@ -17,7 +17,7 @@ Use one of the two paths:
 
 1. **Non-official extension (runtime registration)**:
 - Register adapter in your runtime via `register_architecture_adapter(...)`.
-- Use `discover_circuit(..., adapter_name=..., language_trunk_path=...)` directly.
+- Use `AttributionModel.from_pretrained(..., adapter_name=..., language_trunk_path=...)`.
 
 2. **Official support (upstream PR)**:
 - Add adapter + catalog entry + tests + docs.
@@ -66,16 +66,17 @@ Success signal:
 Optional explicit resolution check:
 
 ```python
-from meap.api import discover_circuit
+from meap import AttributionModel, TaskSpec
 
-_ = discover_circuit(
-    model_id_or_path="<model_or_local_path>",
+am = AttributionModel.from_pretrained(
+    "<model_or_local_path>",
     adapter_name="<arch_adapter_name>",
     language_trunk_path="<optional_trunk_path>",
-    clean_samples={"text": ["hello"]},
-    corrupt_samples={"text": ["world"]},
-    task="next_token",
-    labels=[1],
+)
+
+_ = am.attribute(
+    batches=[prepared_batch],
+    task=TaskSpec(task="next_token", labels=[1]),
     method="smoke",
 )
 ```
