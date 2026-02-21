@@ -12,14 +12,9 @@ from __future__ import annotations
 from .api import (
     AttributionModel,
     AttributionResult,
-    AttributionRunResult,
-    CircuitEdgeSummary,
-    CircuitRunResult,
     PreparedInputLike,
     RouteInfo,
     TaskSpec,
-    attribute_from_dataloader,
-    discover_circuit,
     evaluate_baseline_from_dataloader,
     evaluate_graph_from_dataloader,
 )
@@ -53,9 +48,6 @@ from .preparer import HFProcessorAdapter, prepare_pair_batch_with_processor
 __all__ = [
     "AttributionModel",
     "AttributionResult",
-    "AttributionRunResult",
-    "CircuitEdgeSummary",
-    "CircuitRunResult",
     "DEFAULT_BACKBONE_MODEL_ID",
     "DEFAULT_MULTIMODAL_MODEL_ID",
     "Graph",
@@ -71,8 +63,6 @@ __all__ = [
     "ArchitectureAdapter",
     "TaskSpec",
     "attribute",
-    "attribute_from_dataloader",
-    "discover_circuit",
     "evaluate_graph",
     "evaluate_graph_from_dataloader",
     "evaluate_baseline",

@@ -55,16 +55,14 @@ Core API does not accept:
 
 ## Legacy Compatibility Lane
 
-The following high-level wrappers remain available for migration but are no longer primary:
-- `discover_circuit(...)`
-- `attribute_from_dataloader(...)`
+The following dataloader-based evaluation wrappers remain available:
 - `evaluate_graph_from_dataloader(...)`
 - `evaluate_baseline_from_dataloader(...)`
 
 ## Module Map
 
 - `attribution_model.py`: primary object API
-- `api.py`: stable high-level surface + legacy wrappers
+- `api.py`: stable high-level surface + dataloader-based evaluation wrappers
 - `batch.py`: `PreparedBatch` contract/validation
 - `graph.py`: graph structure
 - `backend/`: HF/TLens runtime backends and adapter registry

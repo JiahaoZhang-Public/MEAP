@@ -8,6 +8,9 @@ All notable changes to this project are documented here.
 - Removed long-deprecated top-level helper re-exports from `meap` package root:
   - score helpers (`get_real_edge_scores`, `get_scores_*`)
   - preparer helpers (`build_default_llava_processor`, `prepare_llava_token_pair_batch`)
+- Removed legacy attribution wrappers from `meap.api`:
+  - `discover_circuit(...)`
+  - `attribute_from_dataloader(...)`
 
 ### Features
 - Standardized `scripts/api_minimal_examples.py` to run through `AttributionModel` core path.

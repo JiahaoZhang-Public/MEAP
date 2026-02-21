@@ -46,9 +46,7 @@ Core `AttributionModel` APIs do not accept:
 
 ## Legacy Compatibility Lane
 
-The following APIs remain available for migration but are no longer primary:
-- `discover_circuit(...)`
-- `attribute_from_dataloader(...)`
+The following dataloader-based evaluation wrappers remain available:
 - `evaluate_graph_from_dataloader(...)`
 - `evaluate_baseline_from_dataloader(...)`
 
@@ -74,7 +72,6 @@ Resolution order:
 
 Where route selection happens:
 - `AttributionModel.from_pretrained(...)` (primary), or
-- `discover_circuit(...)` (legacy compatibility), or
 - `HFLLMBackend(model, adapter_name=..., language_trunk_path=...)` initialization.
 
 Diagnostics fields are stable:

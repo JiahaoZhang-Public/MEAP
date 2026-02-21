@@ -3,7 +3,6 @@ import torch
 from transformers import LlamaConfig, LlamaForCausalLM
 
 from meap.api import (
-    attribute_from_dataloader,
     evaluate_baseline_from_dataloader,
     evaluate_graph_from_dataloader,
 )
@@ -83,74 +82,6 @@ def _raw_preparer(device: torch.device):
     )
 
 
-def test_attribute_from_dataloader_supports_raw_batches_with_custom_preparer():
-    model, backend = _tiny_model_and_backend()
-
-    with pytest.warns(DeprecationWarning, match="AttributionModel.from_model"):
-        result = attribute_from_dataloader(
-            model=model,
-            backend=backend,
-            dataloader=_raw_dataloader(),
-            metric=_metric,
-            pair_batch_preparer=_raw_preparer(backend.config.device),
-            method="smoke",
-        )
-
-    assert result.scores.shape == (result.graph.n_forward, result.graph.n_backward)
-    assert torch.all(result.scores == 0)
-
-
-def test_attribute_from_dataloader_requires_backend():
-    model, _ = _tiny_model_and_backend()
-    with pytest.raises(TypeError, match="missing 1 required keyword-only argument: 'backend'"):
-        _ = attribute_from_dataloader(
-            model=model,
-            dataloader=_raw_dataloader(),
-            metric=_metric,
-            pair_batch_preparer=_raw_preparer(torch.device("cpu")),
-            method="smoke",
-        )
-
-
-def test_attribute_from_dataloader_rejects_dict_batches():
-    model, backend = _tiny_model_and_backend()
-    with pytest.raises(TypeError, match="V2 no longer accepts dict/tuple"):
-        _ = attribute_from_dataloader(
-            model=model,
-            backend=backend,
-            dataloader=[{"clean": ["a"], "corrupt": ["b"], "labels": torch.tensor([0])}],
-            metric=_metric,
-            pair_batch_preparer=_raw_preparer(backend.config.device),
-            method="smoke",
-        )
-
-
-def test_attribute_from_dataloader_requires_preparer_for_raw_batches():
-    model, backend = _tiny_model_and_backend()
-    with pytest.raises(TypeError, match="Raw clean/corrupt batches require a pair_batch_preparer"):
-        _ = attribute_from_dataloader(
-            model=model,
-            backend=backend,
-            dataloader=_raw_dataloader(),
-            metric=_metric,
-            method="smoke",
-        )
-
-
-def test_attribute_from_dataloader_rejects_max_length_flag():
-    model, backend = _tiny_model_and_backend()
-    with pytest.raises(ValueError, match="max_length is not applied"):
-        _ = attribute_from_dataloader(
-            model=model,
-            backend=backend,
-            dataloader=_raw_dataloader(),
-            metric=_metric,
-            pair_batch_preparer=_raw_preparer(backend.config.device),
-            max_length=16,
-            method="smoke",
-        )
-
-
 def test_evaluate_graph_from_dataloader_rejects_max_length_flag():
     model, backend = _tiny_model_and_backend()
     graph = Graph.from_model(backend.config)
@@ -176,4 +107,17 @@ def test_evaluate_baseline_from_dataloader_rejects_max_length_flag():
             metrics=_metric,
             pair_batch_preparer=_raw_preparer(backend.config.device),
             max_length=8,
+        )
+
+
+def test_evaluate_graph_from_dataloader_requires_backend():
+    model, backend = _tiny_model_and_backend()
+    graph = Graph.from_model(backend.config)
+    with pytest.raises(TypeError, match="missing 1 required keyword-only argument: 'backend'"):
+        _ = evaluate_graph_from_dataloader(
+            model=model,
+            graph=graph,
+            dataloader=_raw_dataloader(),
+            metrics=_metric,
+            pair_batch_preparer=_raw_preparer(torch.device("cpu")),
         )

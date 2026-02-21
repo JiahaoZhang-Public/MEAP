@@ -51,9 +51,7 @@ Core API does not accept:
 
 ## Legacy Compatibility Lane
 
-The following wrappers remain available for migration but are not primary:
-- `discover_circuit(...)`
-- `attribute_from_dataloader(...)`
+Legacy evaluation wrappers remain available for advanced dataloader-based evaluation:
 - `evaluate_graph_from_dataloader(...)`
 - `evaluate_baseline_from_dataloader(...)`
 

@@ -27,11 +27,9 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from meap import (  # noqa: E402
-    HFLLMBackend,
+    AttributionModel,
     HFProcessorAdapter,
     PreparedBatch,
-    RawPairBatch,
-    attribute_from_dataloader,
 )
 from meap.batch import PairBatchPreparer, validate_prepared_batch  # noqa: E402
 
@@ -394,11 +392,14 @@ def _run_text(ctx: RunContext) -> ModalityResult:
             labels=labels,
         )
 
-        backend = HFLLMBackend(model, tokenizer=tokenizer)
-        result = attribute_from_dataloader(
-            model=model,
-            backend=backend,
-            dataloader=[prepared],
+        attribution_model = AttributionModel.from_model(
+            model,
+            tokenizer=tokenizer,
+            device=ctx.device,
+            dtype=ctx.dtype,
+        )
+        result = attribution_model.attribute(
+            batches=[prepared],
             metric=metric_logit_diff,
             method=ctx.method,
             quiet=True,
@@ -480,25 +481,24 @@ def _run_image(ctx: RunContext) -> ModalityResult:
         clean_prompt = _build_image_prompt(processor, "What animal is shown on the candy?")
         corrupt_prompt = _build_image_prompt(processor, "What object is this scene mainly about?")
 
-        dataloader = [
-            RawPairBatch(
-                clean=[{"text": clean_prompt, "images": image}],
-                corrupt=[{"text": corrupt_prompt, "images": image}],
-                labels=labels,
-            )
-        ]
-
-        backend = HFLLMBackend(model, tokenizer=tokenizer)
+        attribution_model = AttributionModel.from_model(
+            model,
+            tokenizer=tokenizer,
+            device=ctx.device,
+            dtype=ctx.dtype,
+        )
         preparer = HFProcessorAdapter(
             processor=processor,
             processor_kwargs={"padding": True},
-            device=backend.config.device,
+            device=attribution_model.backend.config.device,
         )
-        result = attribute_from_dataloader(
-            model=model,
-            backend=backend,
-            dataloader=dataloader,
-            pair_batch_preparer=preparer,
+        prepared = preparer.prepare_batch(
+            clean_samples=[{"text": clean_prompt, "images": image}],
+            corrupt_samples=[{"text": corrupt_prompt, "images": image}],
+            labels=labels,
+        )
+        result = attribution_model.attribute(
+            batches=[prepared],
             metric=metric_logit_diff,
             method=ctx.method,
             quiet=True,
@@ -562,9 +562,16 @@ def _run_audio(ctx: RunContext) -> ModalityResult:
         ).to(ctx.device)
         model.eval()
 
-        backend = HFLLMBackend(model)
+        attribution_model = AttributionModel.from_model(
+            model,
+            device=ctx.device,
+            dtype=ctx.dtype,
+        )
         infer_pipe = pipeline(model=model_id, trust_remote_code=True, token=ctx.hf_token)
-        preparer = UltravoxPairPreparer(infer_pipe=infer_pipe, device=backend.config.device)
+        preparer = UltravoxPairPreparer(
+            infer_pipe=infer_pipe,
+            device=attribution_model.backend.config.device,
+        )
 
         audio, sr = load_audio(ctx.audio_path, ctx.audio_url, sampling_rate=16000)
         labels = resolve_target_pair(getattr(infer_pipe, "tokenizer", None), model)
@@ -577,19 +584,13 @@ def _run_audio(ctx: RunContext) -> ModalityResult:
             {"role": "system", "content": "You are concise."},
             {"role": "user", "content": "Transcribe the spoken content."},
         ]
-        dataloader = [
-            RawPairBatch(
-                clean={"audio": audio, "sampling_rate": sr, "turns": turns_clean},
-                corrupt={"audio": audio, "sampling_rate": sr, "turns": turns_corrupt},
-                labels=labels,
-            )
-        ]
-
-        result = attribute_from_dataloader(
-            model=model,
-            backend=backend,
-            dataloader=dataloader,
-            pair_batch_preparer=preparer,
+        prepared = preparer.prepare_batch(
+            clean_samples={"audio": audio, "sampling_rate": sr, "turns": turns_clean},
+            corrupt_samples={"audio": audio, "sampling_rate": sr, "turns": turns_corrupt},
+            labels=labels,
+        )
+        result = attribution_model.attribute(
+            batches=[prepared],
             metric=metric_logit_diff,
             method=ctx.method,
             quiet=True,

@@ -11,14 +11,9 @@ def test_stable_public_api_symbols_are_exported():
     expected = {
         "AttributionModel",
         "AttributionResult",
-        "AttributionRunResult",
-        "CircuitEdgeSummary",
-        "CircuitRunResult",
         "PreparedInputLike",
         "RouteInfo",
         "TaskSpec",
-        "attribute_from_dataloader",
-        "discover_circuit",
         "evaluate_graph_from_dataloader",
         "evaluate_baseline_from_dataloader",
         "HFLLMBackend",
@@ -47,6 +42,19 @@ def test_removed_deprecated_top_level_helpers_are_not_exported():
         "get_scores_smoke",
         "build_default_llava_processor",
         "prepare_llava_token_pair_batch",
+    }
+    assert removed.isdisjoint(set(pkg.__all__))
+    for symbol in removed:
+        assert not hasattr(pkg, symbol)
+
+
+def test_removed_legacy_wrappers_are_not_exported():
+    removed = {
+        "discover_circuit",
+        "attribute_from_dataloader",
+        "AttributionRunResult",
+        "CircuitEdgeSummary",
+        "CircuitRunResult",
     }
     assert removed.isdisjoint(set(pkg.__all__))
     for symbol in removed:

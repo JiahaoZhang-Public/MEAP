@@ -264,15 +264,10 @@ Each should include actionable context (model id/path, adapter, trunk path, batc
 
 ## 8. Migration Plan from v2
 
-### Deprecated compatibility APIs
+### Legacy API removal status
 
-- `discover_circuit(...)` (compatibility wrapper with `DeprecationWarning`)
-- `attribute_from_dataloader(...)` (compatibility wrapper with `DeprecationWarning`)
-
-Keep as compatibility wrappers:
-
-- wrappers preserve old behavior for migration period.
-- wrappers emit `DeprecationWarning` with migration hints.
+- `discover_circuit(...)` removed from `meap.api` in `v1.4.0`.
+- `attribute_from_dataloader(...)` removed from `meap.api` in `v1.4.0`.
 
 ### Move to optional helper lane
 
