@@ -41,7 +41,7 @@ twine check dist/*
 
 - Stable APIs are documented in `docs/docs/API_STABILITY.md`.
 - Internal modules may change in minor releases.
-- V2 high-level input contract is strict:
+- Current high-level input contract is strict:
   - accepted: `PreparedBatch`, `RawPairBatch`
   - rejected: dict/tuple dataloader forms in high-level APIs
 - Deprecated symbols must emit `DeprecationWarning` with:

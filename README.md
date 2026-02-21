@@ -16,7 +16,7 @@ Development:
 pip install -e ".[dev,multimodal,viz,docs]"
 ```
 
-## Primary API (v2)
+## Primary API (v1.4.0)
 
 Use `AttributionModel` as the default user entrypoint.
 
@@ -46,21 +46,34 @@ Core API accepts:
 
 Core API does not accept:
 - raw `clean_samples` / `corrupt_samples`
-- `processor`
 - `pair_batch_preparer`
 
-## Legacy Compatibility Lane
+## Dataloader Evaluation APIs
 
-Legacy evaluation wrappers remain available for advanced dataloader-based evaluation:
+The following evaluation wrappers remain available for dataloader-based workflows:
 - `evaluate_graph_from_dataloader(...)`
 - `evaluate_baseline_from_dataloader(...)`
 
 ## Quick Commands
 
+Examples guide (recommended starting point):
+
+```bash
+cat examples/README.md
+```
+
 Minimal prepared-input example:
 
 ```bash
 python examples/text/attribution_model_prepared.py --device cpu --dtype float32 --method smoke
+```
+
+Per-modality walkthroughs:
+
+```bash
+python examples/text/gpt2.py --device cpu --dtype float32 --method EAP
+python examples/image/Qwen2-VL-2B.py --device cpu --dtype float32 --method EAP
+python examples/audio/ultravox.py --device cpu --dtype float32 --method EAP
 ```
 
 Model route + graph/hook matrix:
@@ -91,6 +104,7 @@ python scripts/release/release.py gate --clean-dist
 ## Versioning
 
 - Current release baseline: `1.4.0`
+- Historical migration notes: `CHANGELOG.md` and `releases/v1.4.0.md`
 
 ## Upstream Reference
 

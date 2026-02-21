@@ -1,4 +1,4 @@
-# Supported Models (V2 Core Set)
+# Supported Models (v1.4.0 Core Set)
 
 This page tracks the official Hugging Face support set for `HFLLMBackend`.
 
@@ -12,7 +12,7 @@ Source of truth:
 
 - New architecture onboarding is smoke-first.
 - Text models can be parity-validated with vendor/TLens workflows.
-- Multimodal attribution remains language-trunk only in this stage.
+- Multimodal attribution remains language-trunk only in the current release.
 
 ## Official Architecture Routes
 
@@ -35,7 +35,7 @@ Source of truth:
 
 ## Explicit Adapter/Trunk Selection
 
-V2 supports:
+Current API supports:
 - `adapter_name`
 - `language_trunk_path`
 
@@ -108,8 +108,8 @@ python scripts/route_graph_matrix.py \
 - Fix: inspect diagnostics (`candidate_backbones`, `adapter_attempts`, `selection_error`) and adjust `adapter_name` / `language_trunk_path`.
 
 2. `Image features and image tokens do not match`
-- Cause: processor prompt template or modality placeholders not aligned.
-- Fix: keep clean/corrupt modality layout identical and use processor-specific prompt construction.
+- Cause: prompt template or modality placeholders are not aligned.
+- Fix: keep clean/corrupt modality layout identical and use model-specific prompt construction.
 
 3. OOM on multimodal models
 - Cause: model size or dtype/device mismatch.

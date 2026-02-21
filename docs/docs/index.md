@@ -5,7 +5,7 @@ Welcome to `meap` (Multimodal Edge Attribution Patching).
 This documentation is organized by **what a new user should read first**.
 
 Current baseline:
-- API contract: **v2**
+- Release baseline: **v1.4.0**
 - Primary API: `AttributionModel`
 - Core contract:
   - `model -> language trunk/graph`
@@ -39,6 +39,9 @@ AttributionModel API design and scope:
 
 7. Scripts guide:
 - `scripts/README.md`
+
+8. Examples guide:
+- `examples/README.md`
 
 ## Documentation Status
 

@@ -1,291 +1,149 @@
-# AttributionModel Public API Design (v2 MVP)
+# AttributionModel API Design (v1.4.0)
 
-Status: Implemented (MVP)  
-Audience: end users of `meap` public API and maintainers
+Status: Implemented (MVP)
 
-## 1. Problem Definition
+This page explains why the current API is shaped this way and how to use it effectively.
+For normative stability guarantees, see `docs/docs/API_STABILITY.md`.
 
-`meap` should optimize for exactly two core responsibilities:
+## 1. Design Goal
 
-1. `model -> language trunk -> graph/hook plan`
-2. `prepared model inputs -> attribution run`
+`meap` v1.4.0 centers on two responsibilities:
 
-For multimodal research, users often already own the preprocessing stack (prompt template, processor, modality packing, truncation policy).  
-Core `meap` should not own raw clean/corrupt sample preparation.
+1. `model -> language trunk -> graph/hook runtime`
+2. `prepared model inputs -> attribution`
 
-## 2. Scope and Non-Goals (MVP)
+This keeps core attribution logic explicit and keeps modality-specific preprocessing in user code.
 
-### In Scope
+## 2. Scope Boundaries
 
-- Resolve language-model trunk from an HF model (automatic or explicit).
-- Build attribution graph from resolved trunk/backend config.
-- Accept prepared inputs only, validate, run attribution.
-- Expose component-level targeting types for attribution (layers/heads/modules/qkv).
+### In scope (core)
+- HF model route resolution to language trunk.
+- Graph construction from resolved trunk/backend config.
+- Prepared-input validation and attribution runtime.
 
-### Out of Scope (Core API)
+## 3. Object Model
 
-- Raw data processing (`clean_samples`, `corrupt_samples`).
-- Processor orchestration (`processor=...`) in core entrypoints.
-- Prompt-template decisions for modality placeholders.
+Core object: `AttributionModel`
 
-These can remain in optional helper modules (`contrib`) or user code.
+Key public data objects:
+- `RouteInfo`
+- `AttributionResult`
+- `PreparedInputLike`
+- `ComponentSpec` (MVP placeholder; see limits)
 
-## 3. Design Principles
+Construction paths:
+- `AttributionModel.from_pretrained(...)`
+- `AttributionModel.from_model(...)`
 
-1. One object-centric entrypoint: `AttributionModel`.
-2. Core accepts `PreparedBatch` (or equivalent tensor mapping only).
-3. Explicit contracts over implicit behavior:
-- no implicit truncation,
-- no hidden processor logic,
-- no hidden clean/corrupt construction.
-4. Backward compatibility through deprecation wrappers, not dual semantics in core.
+Execution methods:
+- `build_graph(...)`
+- `validate_batches(...)`
+- `attribute(...)`
+- `evaluate_graph(...)`
 
-## 4. Stable Public Surface (MVP)
+## 4. Prepared Input Contract
 
-Primary module:
-- `meap.api` (or `meap` package top-level re-export)
-
-### 4.1 Core class
-
-```python
-class AttributionModel:
-    @classmethod
-    def from_pretrained(
-        cls,
-        model_id_or_path: str,
-        *,
-        device: str | torch.device = "auto",
-        dtype: str | torch.dtype = "auto",
-        model_kwargs: dict[str, Any] | None = None,
-        adapter_name: str | None = None,
-        language_trunk_path: str | None = None,
-        strict_arch: bool = True,
-        cache: bool = True,
-    ) -> "AttributionModel": ...
-
-    @classmethod
-    def from_model(
-        cls,
-        model: torch.nn.Module,
-        *,
-        tokenizer: Any | None = None,
-        device: str | torch.device | None = None,
-        dtype: str | torch.dtype | None = None,
-        adapter_name: str | None = None,
-        language_trunk_path: str | None = None,
-        strict_arch: bool = True,
-    ) -> "AttributionModel": ...
-
-    @property
-    def route_info(self) -> "RouteInfo": ...
-
-    def build_graph(
-        self,
-        *,
-        components: "ComponentSpec | None" = None,  # accepted in MVP
-        neuron_level: bool = False,
-        node_scores: bool = False,
-    ) -> Graph: ...
-
-    def attribute(
-        self,
-        *,
-        batches: Iterable["PreparedInputLike"],
-        method: AttributionMethod = "EAP",
-        metric: MetricFn | None = None,
-        task: "TaskSpecVNext | None" = None,
-        graph: Graph | None = None,
-        components: "ComponentSpec | None" = None,
-        ig_steps: int | None = None,
-        intervention: Literal["patching", "zero", "mean", "mean-positional"] = "patching",
-        aggregation: Literal["sum", "mean"] = "sum",
-        intervention_batches: Iterable["PreparedInputLike"] | None = None,
-        quiet: bool = False,
-    ) -> "AttributionResult": ...
-
-    def evaluate_graph(
-        self,
-        *,
-        graph: Graph,
-        batches: Iterable["PreparedInputLike"],
-        metric: MetricFn | None = None,
-        task: "TaskSpecVNext | None" = None,
-        intervention: Literal["patching", "zero", "mean", "mean-positional"] = "patching",
-        intervention_batches: Iterable["PreparedInputLike"] | None = None,
-        skip_clean: bool = True,
-        quiet: bool = False,
-    ) -> torch.Tensor: ...
-
-    def validate_batches(
-        self,
-        batches: Iterable["PreparedInputLike"],
-    ) -> list[PreparedBatch]: ...
-```
-
-### 4.2 Stable data objects
-
-```python
-@dataclass
-class RouteInfo:
-    model_id_or_path: str | None
-    adapter_name: str
-    arch_kind: str
-    language_trunk_path: str
-    diagnostics: dict[str, Any]
-```
-
-```python
-@dataclass
-class ComponentSpec:
-    layers: Sequence[int] | None = None
-    heads: Sequence[int] | None = None
-    include: Sequence[Literal["attn", "mlp", "input", "logits"]] | None = None
-    qkv: Sequence[Literal["q", "k", "v"]] | None = None
-```
-
-```python
-@dataclass
-class AttributionResult:
-    graph: Graph
-    scores: torch.Tensor
-    route_info: RouteInfo
-    run_info: dict[str, Any]
-```
-
-```python
-PreparedInputLike = PreparedBatch | Mapping[str, Any]
-```
-
-If `PreparedInputLike` is mapping, canonical schema is:
+`PreparedInputLike` can be:
+- `PreparedBatch`, or
+- nested mapping equivalent to:
 
 ```python
 {
   "clean_inputs": Dict[str, TensorLike],
   "corrupt_inputs": Dict[str, TensorLike],
   "labels": Any,                     # optional
-  "input_lengths": TensorLike,       # optional (derived from attention_mask when absent)
+  "input_lengths": TensorLike,       # optional
   "meta": Dict[str, Any] | None      # optional
 }
 ```
 
-Core runtime normalizes this into `PreparedBatch` and runs `validate_prepared_batch(...)`.
+Runtime behavior:
+- mapping input is normalized to `PreparedBatch`
+- missing `input_lengths` is derived (usually from `attention_mask`)
+- schema/alignment failures raise validation errors (`ValueError` / `TypeError`)
 
-## 5. Execution Contract (Implemented)
+## 5. Execution Semantics
 
-### 5.1 Input contract
+### 5.1 Metric/task requirement
 
-- Core APIs do not accept:
-  - `clean_samples`
-  - `corrupt_samples`
-  - `processor`
-  - `pair_batch_preparer`
-- Core APIs accept only prepared tensors (`PreparedBatch` or equivalent mapping).
-
-### 5.2 Metric/task contract
-
-`AttributionModel.attribute(...)` requires exactly one of:
-
-- `metric` (custom metric callback), or
-- `task` (built-in task spec, e.g. next-token / choice-classification).
+`AttributionModel.attribute(...)` and `AttributionModel.evaluate_graph(...)` require exactly one of:
+- `metric`, or
+- `task`
 
 Providing both or neither is an error.
 
-### 5.3 Component targeting contract
+### 5.2 Route resolution
 
-If `components` is provided:
+Route selection can be:
+- fully automatic,
+- adapter-constrained (`adapter_name=...`),
+- trunk-constrained (`language_trunk_path=...`).
 
-- graph contains only selected attribution components, and
-- hook plan is compiled only for selected components.
+Use `route_info` for resolved adapter/trunk diagnostics.
 
-If omitted:
+### 5.3 from_pretrained loading behavior
 
-- default full graph behavior is used.
+MVP currently loads via `transformers.AutoModel`.
+If model auto-loading is not suitable for your checkpoint/class, load the model yourself and use:
+- `AttributionModel.from_model(model=...)`
 
-## 6. Ideal User Flows
+This is the recommended path for many multimodal setups.
 
-### Flow A: Multimodal user-owned preprocessing (recommended)
+## 6. Recommended User Flows
+
+### Flow A: text model, quick start
 
 ```python
-from transformers import AutoProcessor
-from meap import AttributionModel, PreparedBatch
+from meap import AttributionModel
 
-model = AttributionModel.from_pretrained("Qwen/Qwen2-VL-2B")
-processor = AutoProcessor.from_pretrained("Qwen/Qwen2-VL-2B")
-
-# User-owned preprocessing (outside core meap):
-clean_inputs = processor(text=[clean_prompt], images=[clean_image], return_tensors="pt", padding=True)
-corrupt_inputs = processor(text=[corrupt_prompt], images=[corrupt_image], return_tensors="pt", padding=True)
-
-batch = PreparedBatch(
-    clean_inputs=dict(clean_inputs),
-    corrupt_inputs=dict(corrupt_inputs),
-    labels=labels,
-    input_lengths=dict(clean_inputs)["attention_mask"].sum(dim=-1),
-)
-
-result = model.attribute(batches=[batch], method="EAP", metric=my_metric)
+am = AttributionModel.from_pretrained("gpt2")
+result = am.attribute(batches=[prepared_batch], metric=my_metric, method="EAP")
 ```
 
-### Flow B: Explicit architecture route
+### Flow B: multimodal, user-owned preprocessing (recommended)
 
 ```python
-model = AttributionModel.from_pretrained(
-    "/path/to/local/model",
+from meap import AttributionModel, PreparedBatch
+
+# user loads model and prepares tensors in their own stack
+am = AttributionModel.from_model(model=my_mm_model, tokenizer=my_tokenizer)
+batch = PreparedBatch(
+    clean_inputs=clean_inputs,
+    corrupt_inputs=corrupt_inputs,
+    labels=labels,
+    input_lengths=input_lengths,
+)
+result = am.attribute(batches=[batch], metric=my_metric, method="EAP")
+```
+
+### Flow C: explicit route override
+
+```python
+am = AttributionModel.from_pretrained(
+    "/path/to/model",
     adapter_name="llama_like",
     language_trunk_path="model.language_model.model",
 )
-print(model.route_info)
+print(am.route_info)
 ```
 
-### Flow C: Component-scoped attribution
+## 7. MVP Limits (Current)
 
-```python
-graph = model.build_graph(
-    components=ComponentSpec(
-        layers=[8, 9, 10],
-        include=["attn", "mlp"],
-        heads=[0, 1, 2],
-        qkv=["q", "k", "v"],
-    )
-)
-result = model.attribute(batches=[batch], graph=graph, method="EAP", metric=my_metric)
-```
+1. `ComponentSpec` is public as a type/interface, but hook-level component filtering is deferred.
+- Passing `components` currently does not prune hook compilation.
+- `build_graph(...)` returns full graph and warns when `components` is provided.
 
-## 7. Public Error Model
+2. Core API is prepared-input-first.
+- Raw sample preparation remains outside core.
 
-Suggested stable error categories:
+## 8. Relationship with Other Docs
 
-- `RouteResolutionError`: trunk/adapter resolution failed.
-- `PreparedInputValidationError`: prepared batch schema or alignment invalid.
-- `ComponentSelectionError`: invalid/unsupported layer-head-qkv selection.
-- `AttributionRuntimeError`: runtime failure during hook execution/backprop.
-
-Each should include actionable context (model id/path, adapter, trunk path, batch index, hook name).
-
-## 8. Migration Plan from v2
-
-### Legacy API removal status
-
-- `discover_circuit(...)` removed from `meap.api` in `v1.4.0`.
-- `attribute_from_dataloader(...)` removed from `meap.api` in `v1.4.0`.
-
-### Move to optional helper lane
-
-- `HFProcessorAdapter` and raw clean/corrupt flows remain available as convenience utilities,
-  but not part of core attribution contract.
-
-## 9. Summary
-
-The v2 MVP public API makes `meap` explicit and composable:
-
-1. `AttributionModel` resolves language trunk and owns graph/hook runtime.
-2. Users own multimodal preprocessing and pass prepared model tensors.
-3. Core validates and runs attribution only.
-
-## 10. MVP Limits
-
-1. `ComponentSpec` is currently a public type contract only.
-- In MVP, passing `components` does not yet apply hook-level filtering.
-- `build_graph(...)` returns the full graph and emits a warning when `components` is provided.
-2. `AttributionModel.from_pretrained(...)` uses `AutoModel`.
-- If auto loading fails for a specific model class or local checkpoint setup, load model in user code and use `AttributionModel.from_model(...)`.
+- Stability guarantees:
+  - `docs/docs/API_STABILITY.md`
+- End-to-end runnable examples:
+  - `examples/README.md`
+- Supported-model smoke matrix:
+  - `docs/docs/SUPPORTED_MODELS.md`
+- Historical changes:
+  - `CHANGELOG.md`
+  - `releases/v1.4.0.md`

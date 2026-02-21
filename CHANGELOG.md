@@ -27,6 +27,9 @@ All notable changes to this project are documented here.
 ### Docs
 - Reorganized and simplified top-level docs/README surfaces to be prepared-input-first and release-oriented.
 - Updated onboarding/support/release docs to prefer `AttributionModel` language-trunk workflow.
+- Consolidated historical migration/removal details into release documentation:
+  - concise references in primary docs
+  - detailed notes in `CHANGELOG.md` and `releases/v1.4.0.md`
 
 ## [1.3.0] - 2026-02-21
 

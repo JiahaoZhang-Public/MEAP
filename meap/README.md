@@ -50,14 +50,17 @@ Core API accepts:
 
 Core API does not accept:
 - raw `clean_samples` / `corrupt_samples`
-- `processor`
 - `pair_batch_preparer`
 
-## Legacy Compatibility Lane
+## Dataloader Evaluation APIs
 
 The following dataloader-based evaluation wrappers remain available:
 - `evaluate_graph_from_dataloader(...)`
 - `evaluate_baseline_from_dataloader(...)`
+
+Historical migration notes are tracked in:
+- `CHANGELOG.md`
+- `releases/v1.4.0.md`
 
 ## Module Map
 
@@ -70,14 +73,20 @@ The following dataloader-based evaluation wrappers remain available:
 
 ## Examples
 
-- Minimal prepared-input example:
-  - `/Users/jiahaozhang/Repo/project/multimodal-lm-eap-ig/examples/text/attribution_model_prepared.py`
+- Examples guide:
+  - `examples/README.md`
+- Minimal prepared-input smoke:
+  - `python examples/text/attribution_model_prepared.py --device cpu --dtype float32 --method smoke`
 - Per-modality walkthroughs:
-  - `/Users/jiahaozhang/Repo/project/multimodal-lm-eap-ig/examples/text/gpt2.py`
-  - `/Users/jiahaozhang/Repo/project/multimodal-lm-eap-ig/examples/image/Qwen2-VL-2B.py`
-  - `/Users/jiahaozhang/Repo/project/multimodal-lm-eap-ig/examples/audio/ultravox.py`
+  - `python examples/text/gpt2.py --device cpu --dtype float32 --method EAP`
+  - `python examples/image/Qwen2-VL-2B.py --device cpu --dtype float32 --method EAP`
+  - `python examples/audio/ultravox.py --device cpu --dtype float32 --method EAP`
 
 ## Known Limits
 
 - Multimodal attribution is language-trunk-centric.
 - `ComponentSpec` is currently a contract placeholder (filtering deferred).
+
+## Versioning
+
+- Current release baseline: `1.4.0`
