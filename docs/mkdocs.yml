@@ -14,7 +14,6 @@ nav:
     - falcon_like: architectures/falcon_like.md
     - gemma_like: architectures/gemma_like.md
     - phi_like: architectures/phi_like.md
-  - Report Schemas: REPORT_SCHEMAS.md
   - Release Process: RELEASE_PROCESS.md
   - New Model Onboarding: NEW_MODEL_ONBOARDING.md
   - Governance: governance.md

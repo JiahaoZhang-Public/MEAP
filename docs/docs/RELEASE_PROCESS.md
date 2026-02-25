@@ -33,7 +33,7 @@ This runs:
 ### 3) Run manual/regression matrix
 
 ```bash
-python scripts/test_stage_matrix.py --strict --output reports/stage_matrix_release.json
+python scripts/test_stage_matrix.py --strict --output artifacts/stage_matrix_release.json
 ```
 
 Or use GitHub Actions manual workflow:

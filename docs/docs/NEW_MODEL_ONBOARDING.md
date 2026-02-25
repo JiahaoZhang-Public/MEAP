@@ -61,7 +61,7 @@ Notes:
 ### A. Structure diagnostics
 
 ```bash
-python scripts/inspect_adapter_registry.py --model-id <model_id> --output reports/inspect_<name>.json
+python scripts/inspect_adapter_registry.py --model-id <model_id> --output artifacts/inspect_<name>.json
 ```
 
 Success signal:
@@ -91,13 +91,13 @@ _ = am.attribute(
 Text:
 
 ```bash
-python scripts/smoke_hf_matrix.py --text-models <model_id> --multimodal-models "" --device cpu --dtype float32 --output reports/smoke_<name>.json
+python scripts/smoke_hf_matrix.py --text-models <model_id> --multimodal-models "" --device cpu --dtype float32 --output artifacts/smoke_<name>.json
 ```
 
 VLM:
 
 ```bash
-python scripts/smoke_hf_matrix.py --text-models "" --multimodal-models <model_id> --device cpu --dtype float32 --output reports/smoke_<name>.json
+python scripts/smoke_hf_matrix.py --text-models "" --multimodal-models <model_id> --device cpu --dtype float32 --output artifacts/smoke_<name>.json
 ```
 
 ### C. Text parity (for text models)
@@ -107,7 +107,7 @@ python scripts/test_text_vendor_parity.py \
   --models <model_id> \
   --methods EAP,EAP-IG-inputs,clean-corrupted,EAP-IG-activations \
   --strict \
-  --output reports/parity_<name>.json
+  --output artifacts/parity_<name>.json
 ```
 
 ### D. Repo quality gates
@@ -131,7 +131,7 @@ Method policy:
 
 For VLM smoke:
 
-- `status == "pass"` in smoke report
+- `status == "pass"` in smoke output
 - graph can be built (`n_forward`, `n_backward`, `n_edges` > 0)
 - failure must include structured diagnostics:
   - `error_type`
@@ -154,7 +154,7 @@ VLM onboarding:
 2. Catalog update (`meap/catalog.py`) for official model support.
 3. Tests added/updated.
 4. Required commands executed.
-5. Report artifacts generated locally (do not commit `reports/*.json`).
+5. JSON artifacts generated locally (do not commit `artifacts/*.json`).
 6. PR body includes:
 - change scope
 - test results

@@ -83,7 +83,7 @@ result = am.attribute(
 python scripts/smoke_hf_matrix.py \
   --device cpu \
   --dtype float32 \
-  --output reports/smoke_hf_matrix.json
+  --output artifacts/smoke_hf_matrix.json
 ```
 
 ### 2) Stage matrix wrapper (lint + unit tests + matrix scripts)
@@ -92,7 +92,7 @@ python scripts/smoke_hf_matrix.py \
 python scripts/test_stage_matrix.py \
   --device cpu \
   --dtype float32 \
-  --output reports/stage_matrix.json
+  --output artifacts/stage_matrix.json
 ```
 
 ### 3) Adapter diagnostics for a specific model
@@ -100,7 +100,7 @@ python scripts/test_stage_matrix.py \
 ```bash
 python scripts/inspect_adapter_registry.py \
   --model-id Qwen/Qwen2-0.5B \
-  --output reports/adapter_registry_qwen2.json
+  --output artifacts/adapter_registry_qwen2.json
 ```
 
 ### 4) Route + graph/hook matrix for text and multimodal models
@@ -112,7 +112,7 @@ python scripts/route_graph_matrix.py \
   --run-attribute-smoke \
   --device cpu \
   --dtype float32 \
-  --output reports/route_graph_matrix.json
+  --output artifacts/route_graph_matrix.json
 ```
 
 ## Common Failures and Fixes

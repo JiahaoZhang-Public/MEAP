@@ -6,10 +6,10 @@
 
 ## Validation Status
 
-- Route + graph/hook: pass (`reports/route_graph_matrix_v150_full.json`)
-- Attribute smoke: pass (`reports/route_graph_matrix_core_with_smoke_v150.json`)
+- Route + graph/hook: pass
+- Attribute smoke: pass
 - Strict parity (methods: `EAP`, `EAP-IG-inputs`, `clean-corrupted`, `EAP-IG-activations`):
-  - `facebook/opt-125m`: skip (`reports/text_parity_facebook_opt_125m.json`)
+  - `facebook/opt-125m`: skip
 
 ## Notes
 

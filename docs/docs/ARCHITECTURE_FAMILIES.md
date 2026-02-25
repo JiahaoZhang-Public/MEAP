@@ -2,7 +2,7 @@
 
 Last updated: 2026-02-25 (UTC)
 
-This section tracks per-family support status and validation evidence.
+This section tracks per-family support status and validation state.
 
 ## Summary Matrix
 
@@ -15,19 +15,11 @@ This section tracks per-family support status and validation evidence.
 | `gemma_like` | pass | pass | not in strict vendor parity lane | TLens vendor parity path unavailable |
 | `phi_like` | pass | pass | not in strict vendor parity lane | TLens vendor parity path unavailable |
 
-## Evidence Reports
+## Validation Sources
 
-- Route/graph/hook full matrix:
-  - `reports/route_graph_matrix_v150_full.json`
-- Core smoke matrix:
-  - `reports/route_graph_matrix_core_with_smoke_v150.json`
-- Nightly smoke matrix:
-  - `reports/route_graph_matrix_nightly_with_smoke_v150.json`
-- Strict parity reports:
-  - `reports/text_parity_gpt2.json`
-  - `reports/text_parity_distilgpt2_strict_no_exact.json`
-  - `reports/text_parity_facebook_opt_125m.json`
-  - `reports/text_parity_qwen2_0_5b_strict_full.json`
+- Route/graph/hook matrix checks
+- Core and nightly attribute smoke checks
+- Strict parity checks for selected text families
 
 ## Family Pages
 

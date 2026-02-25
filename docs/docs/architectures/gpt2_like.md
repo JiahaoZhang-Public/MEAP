@@ -7,11 +7,11 @@
 
 ## Validation Status
 
-- Route + graph/hook: pass (`reports/route_graph_matrix_v150_full.json`)
-- Attribute smoke: pass on `gpt2` (`reports/route_graph_matrix_core_with_smoke_v150.json`)
+- Route + graph/hook: pass
+- Attribute smoke: pass on `gpt2`
 - Strict parity (methods: `EAP`, `EAP-IG-inputs`, `clean-corrupted`, `EAP-IG-activations`):
-  - `gpt2`: pass (`reports/text_parity_gpt2.json`)
-  - `distilgpt2`: pass (`reports/text_parity_distilgpt2_strict_no_exact.json`)
+  - `gpt2`: pass
+  - `distilgpt2`: pass
 
 ## Notes
 

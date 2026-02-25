@@ -31,19 +31,16 @@ AttributionModel API design and scope:
 4. Per-family support detail:
 - `docs/docs/ARCHITECTURE_FAMILIES.md`
 
-5. Report schema contract:
-- `docs/docs/REPORT_SCHEMAS.md`
-
-6. Release process:
+5. Release process:
 - `docs/docs/RELEASE_PROCESS.md`
 
-7. Add a new model in 5 minutes:
+6. Add a new model in 5 minutes:
 - `docs/docs/NEW_MODEL_ONBOARDING.md`
 
-8. Scripts guide:
+7. Scripts guide:
 - `scripts/README.md`
 
-9. Examples guide:
+8. Examples guide:
 - `examples/README.md`
 
 ## Documentation Status
@@ -53,7 +50,6 @@ Active documents:
 - `ATTRIBUTION_MODEL_API_DESIGN.md`
 - `SUPPORTED_MODELS.md`
 - `ARCHITECTURE_FAMILIES.md`
-- `REPORT_SCHEMAS.md`
 - `RELEASE_PROCESS.md`
 - `NEW_MODEL_ONBOARDING.md`
 - `governance.md`

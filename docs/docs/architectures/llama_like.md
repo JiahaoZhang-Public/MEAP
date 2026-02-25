@@ -16,12 +16,12 @@ Multimodal:
 
 ## Validation Status
 
-- Route + graph/hook: pass for all official models (`reports/route_graph_matrix_v150_full.json`)
+- Route + graph/hook: pass for all official models
 - Attribute smoke:
-  - core set: pass (`reports/route_graph_matrix_core_with_smoke_v150.json`)
-  - nightly set: pass (`reports/route_graph_matrix_nightly_with_smoke_v150.json`)
+  - core set: pass
+  - nightly set: pass
 - Strict parity (text, methods without `exact`):
-  - `Qwen/Qwen2-0.5B`: partial (`reports/text_parity_qwen2_0_5b_strict_full.json`)
+  - `Qwen/Qwen2-0.5B`: partial
   - method-level: 3 pass, 1 fail (`EAP-IG-activations`, `max_abs=1.1458e-03`, threshold `1e-3`)
 
 ## Notes
