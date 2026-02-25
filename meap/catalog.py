@@ -39,6 +39,24 @@ _SUPPORTED_ARCHITECTURES: tuple[SupportedArchitecture, ...] = (
         modalities="text,multimodal",
         tier="core",
     ),
+    SupportedArchitecture(
+        adapter_name="falcon_like",
+        arch_kind="falcon_like",
+        modalities="text",
+        tier="core",
+    ),
+    SupportedArchitecture(
+        adapter_name="gemma_like",
+        arch_kind="gemma_like",
+        modalities="text",
+        tier="core",
+    ),
+    SupportedArchitecture(
+        adapter_name="phi_like",
+        arch_kind="phi_like",
+        modalities="text",
+        tier="core",
+    ),
 )
 
 
@@ -68,6 +86,36 @@ _OFFICIAL_MODELS: tuple[OfficialModel, ...] = (
         tier="core",
     ),
     OfficialModel(
+        model_id="TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+        adapter_name="llama_like",
+        modality="text",
+        tier="core",
+    ),
+    OfficialModel(
+        model_id="tiiuae/falcon-rw-1b",
+        adapter_name="falcon_like",
+        modality="text",
+        tier="core",
+    ),
+    OfficialModel(
+        model_id="google/gemma-2-2b",
+        adapter_name="gemma_like",
+        modality="text",
+        tier="nightly",
+    ),
+    OfficialModel(
+        model_id="microsoft/phi-2",
+        adapter_name="phi_like",
+        modality="text",
+        tier="nightly",
+    ),
+    OfficialModel(
+        model_id="microsoft/Phi-3-mini-4k-instruct",
+        adapter_name="phi_like",
+        modality="text",
+        tier="nightly",
+    ),
+    OfficialModel(
         model_id="Qwen/Qwen2-VL-2B",
         adapter_name="llama_like",
         modality="multimodal",
@@ -77,7 +125,31 @@ _OFFICIAL_MODELS: tuple[OfficialModel, ...] = (
         model_id="llava-hf/llava-1.5-7b-hf",
         adapter_name="llama_like",
         modality="multimodal",
+        tier="nightly",
+    ),
+    OfficialModel(
+        model_id="HuggingFaceTB/SmolVLM-Instruct",
+        adapter_name="llama_like",
+        modality="multimodal",
         tier="core",
+    ),
+    OfficialModel(
+        model_id="fixie-ai/ultravox-v0_5-llama-3_2-1b",
+        adapter_name="llama_like",
+        modality="multimodal",
+        tier="core",
+    ),
+    OfficialModel(
+        model_id="Qwen/Qwen2-Audio-7B",
+        adapter_name="llama_like",
+        modality="multimodal",
+        tier="nightly",
+    ),
+    OfficialModel(
+        model_id="HuggingFaceM4/idefics2-8b",
+        adapter_name="llama_like",
+        modality="multimodal",
+        tier="nightly",
     ),
 )
 

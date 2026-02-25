@@ -4,6 +4,14 @@ from pathlib import Path
 import scripts.test_stage_matrix as stage_matrix
 
 
+def test_default_stage_model_lists_use_core_tier_only():
+    text_models = stage_matrix._parse_list(stage_matrix._DEFAULT_TEXT_MODELS)
+    multimodal_models = stage_matrix._parse_list(stage_matrix._DEFAULT_MULTIMODAL_MODELS)
+    assert "google/gemma-2-2b" not in text_models
+    assert "microsoft/Phi-3-mini-4k-instruct" not in text_models
+    assert "Qwen/Qwen2-Audio-7B" not in multimodal_models
+
+
 def test_classify_parity_row_categories():
     assert stage_matrix._classify_parity_row({"status": "pass"}) == ""
     assert stage_matrix._classify_parity_row({"status": "skip"}) == "skip"

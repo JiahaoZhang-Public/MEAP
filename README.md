@@ -22,7 +22,7 @@ Development:
 pip install -e ".[dev,multimodal,viz,docs]"
 ```
 
-## Primary API (v1.4.0)
+## Primary API (v1.5.0)
 
 Use `AttributionModel` as the default user entrypoint.
 
@@ -109,8 +109,8 @@ python scripts/release/release.py gate --clean-dist
 
 ## Versioning
 
-- Current release baseline: `1.4.0`
-- Historical migration notes: `CHANGELOG.md` and `releases/v1.4.0.md`
+- Current release baseline: `1.5.0`
+- Historical migration notes: `CHANGELOG.md`, `releases/v1.4.0.md`, and `releases/v1.5.0.md`
 
 ## Upstream Reference
 

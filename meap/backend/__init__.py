@@ -13,6 +13,7 @@ from .base import (
     is_hooked_transformer_model,
 )
 from .hf_backend import HFLLMBackend
+from .operators import ProjectionAttentionOperator
 from .registry import (
     ResolutionError,
     get_registered_architecture_adapters,
@@ -49,6 +50,7 @@ __all__ = [
     "HFLLMBackend",
     "ModelBackend",
     "ProjectionSpec",
+    "ProjectionAttentionOperator",
     "ResolutionError",
     "TLensBackend",
     "get_registered_architecture_adapters",

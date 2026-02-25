@@ -15,6 +15,7 @@ Five-minute onboarding checklist:
    - `attn_result_module`
    - `qkv_hook_modules`
    - `projection_spec`
+   - `attention_operator`
 4. Register the adapter:
    - add export in `meap/backend/adapters/__init__.py`
    - include adapter class in `_default_adapter_classes()` inside
@@ -32,7 +33,8 @@ from typing import Dict, List, Optional, Sequence
 
 import torch
 
-from ..base import BaseArchitectureAdapter, ProjectionSpec
+from ..base import BackendConfig, BaseArchitectureAdapter, ProjectionSpec
+from ..operators import ProjectionAttentionOperator
 
 
 class TemplateArchitectureAdapter(BaseArchitectureAdapter):
@@ -72,6 +74,20 @@ class TemplateArchitectureAdapter(BaseArchitectureAdapter):
         del attn_module, qkv
         # One of: separate | fused_conv1d | fused_linear | fused_linear_interleaved
         return ProjectionSpec(kind="separate")
+
+    def attention_operator(
+        self,
+        attn_module: torch.nn.Module,
+        *,
+        qkv: str,
+        backend_config: BackendConfig,
+    ) -> ProjectionAttentionOperator:
+        return ProjectionAttentionOperator(
+            n_heads=int(backend_config.n_heads),
+            d_model=int(backend_config.d_model),
+            arch_kind=self.arch_kind,
+            projection_kind=self.projection_spec(attn_module, qkv).kind,
+        )
 
     @property
     def supports_gqa_ungroup(self) -> bool:

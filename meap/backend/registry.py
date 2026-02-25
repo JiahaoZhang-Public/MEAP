@@ -68,18 +68,20 @@ def iter_decoder_backbone_candidates(model: torch.nn.Module) -> List[Tuple[str, 
 def _default_adapter_classes() -> List[Type[ArchitectureAdapter]]:
     from .adapters import (
         FalconLikeAdapter,
+        GemmaLikeAdapter,
         GPT2LikeAdapter,
         LlamaLikeAdapter,
-        MPTLikeAdapter,
         OPTLikeAdapter,
+        PhiLikeAdapter,
     )
 
     return [
+        GemmaLikeAdapter,
+        PhiLikeAdapter,
         LlamaLikeAdapter,
         GPT2LikeAdapter,
         OPTLikeAdapter,
         FalconLikeAdapter,
-        MPTLikeAdapter,
     ]
 
 

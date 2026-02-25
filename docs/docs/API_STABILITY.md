@@ -1,4 +1,4 @@
-# API Stability (v1.4.0)
+# API Stability (v1.5.0)
 
 This page is the normative stability contract for `meap` public APIs.
 
@@ -77,3 +77,4 @@ The following modules are implementation details and may change in minor release
 For historical removals and migration notes, see:
 - `CHANGELOG.md`
 - `releases/v1.4.0.md`
+- `releases/v1.5.0.md`

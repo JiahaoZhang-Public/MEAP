@@ -8,9 +8,9 @@ from ..base import BackendConfig, BaseArchitectureAdapter, ProjectionSpec
 from ..operators import ProjectionAttentionOperator
 
 
-class LlamaLikeAdapter(BaseArchitectureAdapter):
-    name = "llama_like"
-    arch_kind = "llama_like"
+class GemmaLikeAdapter(BaseArchitectureAdapter):
+    name = "gemma_like"
+    arch_kind = "gemma_like"
     layer_accessors = {
         "attn": "self_attn",
         "mlp": "mlp",
@@ -20,7 +20,15 @@ class LlamaLikeAdapter(BaseArchitectureAdapter):
     required_attn_attrs = ("q_proj", "k_proj", "v_proj", "o_proj")
 
     def match(self, backbone: torch.nn.Module) -> bool:
-        return hasattr(backbone, "layers")
+        if not hasattr(backbone, "layers"):
+            return False
+        class_name = backbone.__class__.__name__.lower()
+        if "gemma" in class_name:
+            return True
+        if hasattr(backbone, "config"):
+            model_type = str(getattr(backbone.config, "model_type", "")).lower()
+            return "gemma" in model_type
+        return False
 
     def get_layers(self, backbone: torch.nn.Module) -> Optional[Sequence[torch.nn.Module]]:
         return getattr(backbone, "layers", None)

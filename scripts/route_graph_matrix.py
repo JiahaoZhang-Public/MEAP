@@ -19,18 +19,24 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from meap import AttributionModel, PreparedBatch, inspect_model_architecture  # noqa: E402
+from meap import (  # noqa: E402
+    AttributionModel,
+    PreparedBatch,
+    inspect_model_architecture,
+    list_official_models,
+)
 from meap.utils import make_hooks_and_matrices  # noqa: E402
 
+_OFFICIAL_MODELS = list_official_models()
 DEFAULT_TEXT_MODELS = [
-    "gpt2",
-    "facebook/opt-125m",
-    "Qwen/Qwen2-0.5B",
+    row["model_id"]
+    for row in _OFFICIAL_MODELS
+    if row["modality"] == "text" and row.get("tier", "core") == "core"
 ]
 DEFAULT_MULTIMODAL_MODELS = [
-    "Qwen/Qwen2-VL-2B",
-    "llava-hf/llava-1.5-7b-hf",
-    "fixie-ai/ultravox-v0_5-llama-3_2-1b",
+    row["model_id"]
+    for row in _OFFICIAL_MODELS
+    if row["modality"] == "multimodal" and row.get("tier", "core") == "core"
 ]
 REPORT_TYPE = "route_graph_matrix"
 SCHEMA_VERSION = "1.0.0"
@@ -366,6 +372,14 @@ def _load_multimodal_model(
     trust_remote_code: bool,
 ):
     kwargs = _model_kwargs(dtype=dtype, token=token, trust_remote_code=trust_remote_code)
+    lowered = model_id.lower()
+    if "qwen2-audio" in lowered:
+        from transformers import Qwen2AudioForConditionalGeneration
+
+        return (
+            Qwen2AudioForConditionalGeneration.from_pretrained(model_id, **kwargs),
+            "Qwen2AudioForConditionalGeneration",
+        )
     if "ultravox" in model_id.lower():
         return AutoModel.from_pretrained(model_id, **kwargs), "AutoModel"
 

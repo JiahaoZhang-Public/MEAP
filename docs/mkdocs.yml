@@ -6,6 +6,14 @@ nav:
   - API Stability: API_STABILITY.md
   - AttributionModel API Design: ATTRIBUTION_MODEL_API_DESIGN.md
   - Supported Models: SUPPORTED_MODELS.md
+  - Architecture Families:
+    - Overview: ARCHITECTURE_FAMILIES.md
+    - gpt2_like: architectures/gpt2_like.md
+    - opt_like: architectures/opt_like.md
+    - llama_like: architectures/llama_like.md
+    - falcon_like: architectures/falcon_like.md
+    - gemma_like: architectures/gemma_like.md
+    - phi_like: architectures/phi_like.md
   - Report Schemas: REPORT_SCHEMAS.md
   - Release Process: RELEASE_PROCESS.md
   - New Model Onboarding: NEW_MODEL_ONBOARDING.md

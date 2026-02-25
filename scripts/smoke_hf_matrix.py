@@ -38,8 +38,16 @@ from meap.batch import PairBatchPreparer, validate_prepared_batch  # noqa: E402
 from meap.graph import Graph  # noqa: E402
 
 _OFFICIAL_MODELS = list_official_models()
-DEFAULT_TEXT_MODELS = [row["model_id"] for row in _OFFICIAL_MODELS if row["modality"] == "text"]
-DEFAULT_MULTIMODAL_MODELS = [row["model_id"] for row in _OFFICIAL_MODELS if row["modality"] == "multimodal"]
+DEFAULT_TEXT_MODELS = [
+    row["model_id"]
+    for row in _OFFICIAL_MODELS
+    if row["modality"] == "text" and row.get("tier", "core") == "core"
+]
+DEFAULT_MULTIMODAL_MODELS = [
+    row["model_id"]
+    for row in _OFFICIAL_MODELS
+    if row["modality"] == "multimodal" and row.get("tier", "core") == "core"
+]
 REPORT_TYPE = "smoke_hf_matrix"
 SCHEMA_VERSION = "1.1.0"
 
@@ -225,6 +233,11 @@ def _load_multimodal_model(
     if token:
         kwargs["token"] = token
 
+    if "qwen2-audio" in model_id.lower():
+        from transformers import Qwen2AudioForConditionalGeneration
+
+        return Qwen2AudioForConditionalGeneration.from_pretrained(model_id, **kwargs)
+
     try:
         return AutoModelForImageTextToText.from_pretrained(model_id, **kwargs)
     except Exception:
@@ -242,6 +255,10 @@ def _load_audio_model(
     kwargs: Dict[str, Any] = {"dtype": dtype, "trust_remote_code": True}
     if token:
         kwargs["token"] = token
+    if "qwen2-audio" in model_id.lower():
+        from transformers import Qwen2AudioForConditionalGeneration
+
+        return Qwen2AudioForConditionalGeneration.from_pretrained(model_id, **kwargs)
     try:
         return AutoModel.from_pretrained(model_id, **kwargs)
     except Exception as auto_exc:

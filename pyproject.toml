@@ -4,7 +4,7 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "meap"
-version = "1.4.0"
+version = "1.5.0"
 description = "Multimodal Edge Attribution Patching (EAP-family) for language-model backbones"
 authors = [
   { name = "Jiahao Zhang" }

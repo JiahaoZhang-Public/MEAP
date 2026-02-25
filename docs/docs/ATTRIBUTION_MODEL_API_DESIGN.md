@@ -1,4 +1,4 @@
-# AttributionModel API Design (v1.4.0)
+# AttributionModel API Design (v1.5.0)
 
 Status: Implemented (MVP)
 
@@ -7,7 +7,7 @@ For normative stability guarantees, see `docs/docs/API_STABILITY.md`.
 
 ## 1. Design Goal
 
-`meap` v1.4.0 centers on two responsibilities:
+`meap` v1.5.0 centers on two responsibilities:
 
 1. `model -> language trunk -> graph/hook runtime`
 2. `prepared model inputs -> attribution`
@@ -83,8 +83,8 @@ Use `route_info` for resolved adapter/trunk diagnostics.
 
 ### 5.3 from_pretrained loading behavior
 
-MVP currently loads via `transformers.AutoModel`.
-If model auto-loading is not suitable for your checkpoint/class, load the model yourself and use:
+MVP first tries `transformers.AutoModel`, then falls back to `transformers.AutoModelForCausalLM`.
+If auto-loading is not suitable for your checkpoint/class, load the model yourself and use:
 - `AttributionModel.from_model(model=...)`
 
 This is the recommended path for many multimodal setups.
@@ -147,3 +147,4 @@ print(am.route_info)
 - Historical changes:
   - `CHANGELOG.md`
   - `releases/v1.4.0.md`
+  - `releases/v1.5.0.md`

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import (
+    TYPE_CHECKING,
     Any,
     Callable,
     Dict,
@@ -16,6 +17,9 @@ from typing import (
 
 import torch
 from torch import Tensor
+
+if TYPE_CHECKING:
+    from .operators import ProjectionAttentionOperator
 
 BackendHookSpec = Tuple[str, Callable]
 
@@ -134,6 +138,15 @@ class ArchitectureAdapter(Protocol):
     def projection_spec(self, attn_module: torch.nn.Module, qkv: str) -> ProjectionSpec:
         ...
 
+    def attention_operator(
+        self,
+        attn_module: torch.nn.Module,
+        *,
+        qkv: str,
+        backend_config: BackendConfig,
+    ) -> "ProjectionAttentionOperator":
+        ...
+
     @property
     def supports_gqa_ungroup(self) -> bool:
         ...
@@ -173,6 +186,23 @@ class BaseArchitectureAdapter:
     def projection_spec(self, attn_module: torch.nn.Module, qkv: str) -> ProjectionSpec:
         del attn_module, qkv
         return ProjectionSpec(kind="separate")
+
+    def attention_operator(
+        self,
+        attn_module: torch.nn.Module,
+        *,
+        qkv: str,
+        backend_config: BackendConfig,
+    ) -> "ProjectionAttentionOperator":
+        from .operators import ProjectionAttentionOperator
+
+        projection_kind = self.projection_spec(attn_module, qkv).kind
+        return ProjectionAttentionOperator(
+            n_heads=int(backend_config.n_heads),
+            d_model=int(backend_config.d_model),
+            arch_kind=self.arch_kind,
+            projection_kind=projection_kind,
+        )
 
     @property
     def supports_gqa_ungroup(self) -> bool:

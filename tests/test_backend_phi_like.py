@@ -1,5 +1,11 @@
+import pytest
 import torch
-from transformers import MptConfig, MptForCausalLM
+from transformers import (
+    Phi3Config,
+    Phi3ForCausalLM,
+    PhiConfig,
+    PhiForCausalLM,
+)
 
 from meap.attribute import attribute
 from meap.backend import HFLLMBackend
@@ -7,16 +13,26 @@ from meap.batch import PreparedBatch
 from meap.graph import Graph
 
 
-def _tiny_mpt_lm() -> MptForCausalLM:
-    cfg = MptConfig(
-        d_model=64,
-        n_layers=1,
-        n_heads=4,
-        vocab_size=128,
-        max_seq_len=32,
-        attn_config={"attn_impl": "torch"},
+def _tiny_phi2_lm() -> PhiForCausalLM:
+    cfg = PhiConfig(
+        hidden_size=64,
+        intermediate_size=128,
+        num_hidden_layers=1,
+        num_attention_heads=4,
+        vocab_size=512,
     )
-    return MptForCausalLM(cfg)
+    return PhiForCausalLM(cfg)
+
+
+def _tiny_phi3_lm() -> Phi3ForCausalLM:
+    cfg = Phi3Config(
+        hidden_size=64,
+        intermediate_size=128,
+        num_hidden_layers=1,
+        num_attention_heads=4,
+        vocab_size=33000,
+    )
+    return Phi3ForCausalLM(cfg)
 
 
 def _prepared_batch() -> PreparedBatch:
@@ -36,11 +52,15 @@ def _metric(logits, clean_logits, batch):
     return logits.sum()
 
 
-def test_hf_backend_mpt_adapter_and_smoke():
-    model = _tiny_mpt_lm().eval()
+@pytest.mark.parametrize(
+    "factory",
+    [_tiny_phi2_lm, _tiny_phi3_lm],
+)
+def test_hf_backend_phi_adapter_and_smoke(factory):
+    model = factory().eval()
     backend = HFLLMBackend(model)
 
-    assert backend.adapter_name == "mpt_like"
+    assert backend.adapter_name == "phi_like"
     names = set(backend.supported_hook_names)
     assert "hook_embed" in names
     assert "blocks.0.attn.hook_result" in names
