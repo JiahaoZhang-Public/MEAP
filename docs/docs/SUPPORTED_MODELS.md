@@ -1,4 +1,4 @@
-# Supported Models (v1.4.0 Core Set)
+# Supported Models (v1.5.0 Core Set)
 
 This page tracks the official Hugging Face support set for `HFLLMBackend`.
 
@@ -7,6 +7,8 @@ Source of truth:
 - public query APIs:
   - `list_supported_architectures()`
   - `list_official_models()`
+- per-family test status pages:
+  - `docs/docs/ARCHITECTURE_FAMILIES.md`
 
 ## Scope
 
@@ -21,6 +23,9 @@ Source of truth:
 | `gpt2_like` | `gpt2_like` | text | core |
 | `opt_like` | `opt_like` | text | core |
 | `llama_like` | `llama_like` | text,multimodal | core |
+| `falcon_like` | `falcon_like` | text | core |
+| `gemma_like` | `gemma_like` | text | core |
+| `phi_like` | `phi_like` | text | core |
 
 ## Official Model IDs (Core)
 
@@ -30,8 +35,17 @@ Source of truth:
 | `distilgpt2` | `gpt2_like` | text | core |
 | `facebook/opt-125m` | `opt_like` | text | core |
 | `Qwen/Qwen2-0.5B` | `llama_like` | text | core |
+| `TinyLlama/TinyLlama-1.1B-Chat-v1.0` | `llama_like` | text | core |
+| `tiiuae/falcon-rw-1b` | `falcon_like` | text | core |
+| `google/gemma-2-2b` | `gemma_like` | text | nightly |
+| `microsoft/phi-2` | `phi_like` | text | nightly |
+| `microsoft/Phi-3-mini-4k-instruct` | `phi_like` | text | nightly |
 | `Qwen/Qwen2-VL-2B` | `llama_like` | multimodal | core |
-| `llava-hf/llava-1.5-7b-hf` | `llama_like` | multimodal | core |
+| `HuggingFaceTB/SmolVLM-Instruct` | `llama_like` | multimodal | core |
+| `fixie-ai/ultravox-v0_5-llama-3_2-1b` | `llama_like` | multimodal | core |
+| `Qwen/Qwen2-Audio-7B` | `llama_like` | multimodal | nightly |
+| `llava-hf/llava-1.5-7b-hf` | `llama_like` | multimodal | nightly |
+| `HuggingFaceM4/idefics2-8b` | `llama_like` | multimodal | nightly |
 
 ## Explicit Adapter/Trunk Selection
 
@@ -93,8 +107,8 @@ python scripts/inspect_adapter_registry.py \
 
 ```bash
 python scripts/route_graph_matrix.py \
-  --text-models gpt2,facebook/opt-125m,Qwen/Qwen2-0.5B \
-  --multimodal-models Qwen/Qwen2-VL-2B,llava-hf/llava-1.5-7b-hf,fixie-ai/ultravox-v0_5-llama-3_2-1b \
+  --text-models gpt2,distilgpt2,facebook/opt-125m,Qwen/Qwen2-0.5B,TinyLlama/TinyLlama-1.1B-Chat-v1.0,tiiuae/falcon-rw-1b,google/gemma-2-2b,microsoft/phi-2,microsoft/Phi-3-mini-4k-instruct \
+  --multimodal-models Qwen/Qwen2-VL-2B,HuggingFaceTB/SmolVLM-Instruct,fixie-ai/ultravox-v0_5-llama-3_2-1b,Qwen/Qwen2-Audio-7B,llava-hf/llava-1.5-7b-hf,HuggingFaceM4/idefics2-8b \
   --run-attribute-smoke \
   --device cpu \
   --dtype float32 \

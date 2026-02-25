@@ -212,17 +212,30 @@ class AttributionModel:
         if cache and key in cls._FROM_PRETRAINED_CACHE:
             return cls._FROM_PRETRAINED_CACHE[key]
 
-        from transformers import AutoModel
+        from transformers import AutoModel, AutoModelForCausalLM
 
-        try:
-            model = AutoModel.from_pretrained(normalized_ref, **(model_kwargs or {}))
-        except Exception as exc:
+        resolved_model_kwargs = model_kwargs or {}
+        load_errors: list[str] = []
+        model = None
+        for loader_name, loader in (
+            ("AutoModel", AutoModel),
+            ("AutoModelForCausalLM", AutoModelForCausalLM),
+        ):
+            try:
+                model = loader.from_pretrained(normalized_ref, **resolved_model_kwargs)
+                break
+            except Exception as exc:  # noqa: BLE001
+                load_errors.append(f"{loader_name}: {exc}")
+
+        if model is None:
+            errors_joined = " | ".join(load_errors)
             raise RuntimeError(
-                "AttributionModel.from_pretrained failed to load model via AutoModel. "
+                "AttributionModel.from_pretrained failed to load model. "
+                "Tried AutoModel and AutoModelForCausalLM. "
                 "You can load the model in user code and call "
                 "AttributionModel.from_model(model=...) as a fallback. "
-                f"model_id_or_path='{normalized_ref}', error={exc}"
-            ) from exc
+                f"model_id_or_path='{normalized_ref}', errors={errors_joined}"
+            )
 
         model.eval()
         backend = HFLLMBackend(

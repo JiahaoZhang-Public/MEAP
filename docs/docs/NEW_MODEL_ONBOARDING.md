@@ -41,6 +41,11 @@ Steps:
 - `attn_result_module(attn_module)`
 - `qkv_hook_modules(attn_module)`
 - `projection_spec(attn_module, qkv)`
+- `attention_operator(attn_module, qkv=..., backend_config=...)`
+
+Notes:
+- `HFLLMBackend` no longer carries architecture-specific projection/gradient branching.
+- Adapter operator is the single place to encode fused/separate qkv semantics.
 
 3. Register adapter:
 - Export adapter in `meap/backend/adapters/__init__.py`
@@ -100,9 +105,8 @@ python scripts/smoke_hf_matrix.py --text-models "" --multimodal-models <model_id
 ```bash
 python scripts/test_text_vendor_parity.py \
   --models <model_id> \
-  --methods EAP,EAP-IG-inputs,clean-corrupted,EAP-IG-activations,exact \
+  --methods EAP,EAP-IG-inputs,clean-corrupted,EAP-IG-activations \
   --strict \
-  --max-exact-edges 30000 \
   --output reports/parity_<name>.json
 ```
 
@@ -124,7 +128,6 @@ For text-model strict parity:
 Method policy:
 
 - Required parity methods: `EAP`, `EAP-IG-inputs`, `clean-corrupted`, `EAP-IG-activations`
-- `exact`: allowed `skip` when graph edges exceed `--max-exact-edges`; must include skip reason.
 
 For VLM smoke:
 

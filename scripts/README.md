@@ -64,15 +64,29 @@ python scripts/real_attribution_modalities.py \
 - Purpose: verify `model -> language trunk -> graph/hook` route resolution across text and multimodal model sets.
 - Optional: add `--run-attribute-smoke` to run one minimal `PreparedBatch` attribution smoke (`method=smoke`) per model.
 - Output schema: `report_type=route_graph_matrix`, `schema_version=1.0.0`.
+- Defaults: `tier=core` model set from `meap.catalog`.
 - Typical use:
 ```bash
 python scripts/route_graph_matrix.py \
-  --text-models gpt2,facebook/opt-125m,Qwen/Qwen2-0.5B \
-  --multimodal-models Qwen/Qwen2-VL-2B,llava-hf/llava-1.5-7b-hf,fixie-ai/ultravox-v0_5-llama-3_2-1b \
+  --text-models gpt2,facebook/opt-125m,Qwen/Qwen2-0.5B,tiiuae/falcon-rw-1b \
+  --multimodal-models Qwen/Qwen2-VL-2B,HuggingFaceTB/SmolVLM-Instruct,fixie-ai/ultravox-v0_5-llama-3_2-1b \
   --run-attribute-smoke \
   --device cpu \
   --dtype float32 \
   --output reports/route_graph_matrix.json
+```
+
+9. `scripts/download_hf_models.py`
+- Purpose: one-click download of Hugging Face model snapshots.
+- Default preset downloads all known models (official + route matrix + v1.5 candidates).
+- Output schema: `report_type=hf_model_download`, `schema_version=1.0.0`.
+- Typical use:
+```bash
+python scripts/download_hf_models.py --preset all-known --output reports/hf_model_download.json
+```
+- Dry-run (list only, no download):
+```bash
+python scripts/download_hf_models.py --preset all-known --dry-run
 ```
 
 For per-model, per-modality walkthrough scripts, use:

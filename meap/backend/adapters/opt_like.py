@@ -4,7 +4,8 @@ from typing import Dict, List, Optional, Sequence
 
 import torch
 
-from ..base import BaseArchitectureAdapter, ProjectionSpec
+from ..base import BackendConfig, BaseArchitectureAdapter, ProjectionSpec
+from ..operators import ProjectionAttentionOperator
 
 
 class OPTLikeAdapter(BaseArchitectureAdapter):
@@ -47,6 +48,20 @@ class OPTLikeAdapter(BaseArchitectureAdapter):
     def projection_spec(self, attn_module: torch.nn.Module, qkv: str) -> ProjectionSpec:
         del attn_module, qkv
         return ProjectionSpec(kind="separate")
+
+    def attention_operator(
+        self,
+        attn_module: torch.nn.Module,
+        *,
+        qkv: str,
+        backend_config: BackendConfig,
+    ) -> ProjectionAttentionOperator:
+        return ProjectionAttentionOperator(
+            n_heads=int(backend_config.n_heads),
+            d_model=int(backend_config.d_model),
+            arch_kind=self.arch_kind,
+            projection_kind=self.projection_spec(attn_module, qkv).kind,
+        )
 
     @property
     def supports_gqa_ungroup(self) -> bool:

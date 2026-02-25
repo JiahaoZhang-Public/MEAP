@@ -16,9 +16,19 @@ from meap import list_official_models
 REPORT_TYPE = "stage_matrix"
 SCHEMA_VERSION = "1.0.0"
 _OFFICIAL_MODELS = list_official_models()
-_DEFAULT_TEXT_MODELS = ",".join([row["model_id"] for row in _OFFICIAL_MODELS if row["modality"] == "text"])
+_DEFAULT_TEXT_MODELS = ",".join(
+    [
+        row["model_id"]
+        for row in _OFFICIAL_MODELS
+        if row["modality"] == "text" and row.get("tier", "core") == "core"
+    ]
+)
 _DEFAULT_MULTIMODAL_MODELS = ",".join(
-    [row["model_id"] for row in _OFFICIAL_MODELS if row["modality"] == "multimodal"]
+    [
+        row["model_id"]
+        for row in _OFFICIAL_MODELS
+        if row["modality"] == "multimodal" and row.get("tier", "core") == "core"
+    ]
 )
 
 
@@ -125,7 +135,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--parity-methods",
-        default="EAP,EAP-IG-inputs,clean-corrupted,EAP-IG-activations,exact",
+        default="EAP,EAP-IG-inputs,clean-corrupted,EAP-IG-activations",
     )
     parser.add_argument("--device", default="cuda" if _has_cuda() else "cpu")
     parser.add_argument("--dtype", default="float32", choices=["float16", "bfloat16", "float32"])

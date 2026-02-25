@@ -6,11 +6,11 @@ on:
       text_models:
         description: "Comma-separated text models for parity"
         required: false
-        default: "gpt2,Qwen/Qwen2-0.5B,facebook/opt-125m,TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+        default: "gpt2,facebook/opt-125m,Qwen/Qwen2-0.5B,tiiuae/falcon-rw-1b"
       multimodal_models:
         description: "Comma-separated multimodal models for smoke"
         required: false
-        default: "Qwen/Qwen2-VL-2B,llava-hf/llava-1.5-7b-hf,HuggingFaceTB/SmolVLM-Instruct,Qwen/Qwen2-Audio-7B"
+        default: "Qwen/Qwen2-VL-2B,HuggingFaceTB/SmolVLM-Instruct,fixie-ai/ultravox-v0_5-llama-3_2-1b"
       dtype:
         description: "dtype for matrix run"
         required: false

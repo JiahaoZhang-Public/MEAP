@@ -9,6 +9,12 @@ def test_parse_model_list_handles_empty_entries():
     assert models == ["gpt2", "distilgpt2"]
 
 
+def test_default_model_lists_use_core_tier_only():
+    assert "google/gemma-2-2b" not in smoke_matrix.DEFAULT_TEXT_MODELS
+    assert "microsoft/Phi-3-mini-4k-instruct" not in smoke_matrix.DEFAULT_TEXT_MODELS
+    assert "Qwen/Qwen2-Audio-7B" not in smoke_matrix.DEFAULT_MULTIMODAL_MODELS
+
+
 def test_classify_error_categories():
     assert smoke_matrix.classify_error(RuntimeError("CUDA out of memory")) == "oom"
     assert smoke_matrix.classify_error(RuntimeError("401 Unauthorized")) == "auth"

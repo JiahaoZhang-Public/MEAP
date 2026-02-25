@@ -61,6 +61,7 @@ The following dataloader-based evaluation wrappers remain available:
 Historical migration notes are tracked in:
 - `CHANGELOG.md`
 - `releases/v1.4.0.md`
+- `releases/v1.5.0.md`
 
 ## Module Map
 
@@ -89,4 +90,4 @@ Historical migration notes are tracked in:
 
 ## Versioning
 
-- Current release baseline: `1.4.0`
+- Current release baseline: `1.5.0`

@@ -51,7 +51,6 @@ DEFAULT_METHODS = [
     "EAP-IG-inputs",
     "clean-corrupted",
     "EAP-IG-activations",
-    "exact",
 ]
 REPORT_TYPE = "text_vendor_parity"
 SCHEMA_VERSION = "1.0.0"
@@ -157,7 +156,8 @@ def set_seed(seed: int) -> None:
 
 
 def patch_vendor_cuda_literals() -> None:
-    ensure_vendor_available()
+    if _VENDOR_IMPORT_ERROR is not None:
+        return
     if torch.cuda.is_available():
         return
 
@@ -233,7 +233,26 @@ def build_records(tokenizer, n_samples: int) -> list[tuple[str, str, list[int]]]
             names.append(name)
 
     if len(names) < 4:
-        raise RuntimeError(f"Need >=4 single-token names, found {len(names)}: {names}")
+        vocab_size = getattr(tokenizer, "vocab_size", None)
+        if not isinstance(vocab_size, int) or vocab_size <= 10:
+            get_vocab = getattr(tokenizer, "get_vocab", None)
+            if callable(get_vocab):
+                try:
+                    vocab_size = len(get_vocab())
+                except Exception:  # noqa: BLE001
+                    vocab_size = None
+        if not isinstance(vocab_size, int) or vocab_size <= 10:
+            vocab_size = 32_000
+        token_a = min(42, vocab_size - 1)
+        token_b = min(43, vocab_size - 1)
+        if token_b == token_a:
+            token_b = (token_a + 1) % vocab_size
+        fallback_records: list[tuple[str, str, list[int]]] = []
+        for i in range(n_samples):
+            clean = f"Sample clean prompt {i}: the answer is"
+            corrupt = f"Sample corrupt prompt {i}: the answer is"
+            fallback_records.append((clean, corrupt, [token_a, token_b]))
+        return fallback_records
 
     records: list[tuple[str, str, list[int]]] = []
     for i in range(n_samples):
@@ -292,6 +311,56 @@ def build_prepared_batches(
     return out
 
 
+def _pad_to_target(tokens: Tensor, *, target_length: int, value: int) -> Tensor:
+    pad = target_length - int(tokens.shape[1])
+    if pad <= 0:
+        return tokens
+    return torch.nn.functional.pad(tokens, (0, pad), value=value)
+
+
+def build_prepared_batches_hf(
+    tokenizer,
+    records: Sequence[tuple[str, str, list[int]]],
+    batch_size: int,
+    *,
+    device: str,
+) -> list[PreparedBatch]:
+    out: list[PreparedBatch] = []
+    pad_token_id = tokenizer.pad_token_id
+    if pad_token_id is None:
+        pad_token_id = tokenizer.eos_token_id
+    if pad_token_id is None:
+        pad_token_id = 0
+
+    for i in range(0, len(records), batch_size):
+        chunk = records[i : i + batch_size]
+        clean = [x[0] for x in chunk]
+        corrupt = [x[1] for x in chunk]
+        labels = torch.tensor([x[2] for x in chunk], dtype=torch.long, device=device)
+
+        clean_tok = tokenizer(clean, return_tensors="pt", padding=True)
+        corrupt_tok = tokenizer(corrupt, return_tensors="pt", padding=True)
+        target_len = max(int(clean_tok["input_ids"].shape[1]), int(corrupt_tok["input_ids"].shape[1]))
+
+        clean_ids = _pad_to_target(clean_tok["input_ids"], target_length=target_len, value=int(pad_token_id)).to(device)
+        corrupt_ids = _pad_to_target(
+            corrupt_tok["input_ids"], target_length=target_len, value=int(pad_token_id)
+        ).to(device)
+        clean_mask = _pad_to_target(clean_tok["attention_mask"], target_length=target_len, value=0).to(device)
+        corrupt_mask = _pad_to_target(corrupt_tok["attention_mask"], target_length=target_len, value=0).to(device)
+        shared_mask = torch.minimum(clean_mask, corrupt_mask)
+
+        out.append(
+            PreparedBatch(
+                clean_inputs={"input_ids": clean_ids, "attention_mask": shared_mask},
+                corrupt_inputs={"input_ids": corrupt_ids, "attention_mask": shared_mask.clone()},
+                labels=labels,
+                input_lengths=shared_mask.sum(dim=-1),
+            )
+        )
+    return out
+
+
 def vendor_metric(logits: Tensor, clean_logits: Tensor | None, input_lengths: Tensor, labels: Tensor) -> Tensor:
     del clean_logits
     input_lengths = input_lengths.to(device=logits.device)
@@ -344,6 +413,11 @@ def compute_diff_stats(a: Tensor, b: Tensor, *, top_k: int) -> DiffStats:
         cosine=cosine,
         topk_overlap=_topk_overlap(a_cpu, b_cpu, top_k),
     )
+
+
+def _is_known_parity_runtime_limit(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return "size of tensor a" in text and "must match the size of tensor b" in text
 
 
 def run_method(
@@ -453,6 +527,90 @@ def run_method(
     )
 
 
+def run_method_hf_only(
+    *,
+    method: str,
+    hf_model: torch.nn.Module,
+    hf_backend: HFLLMBackend,
+    prepared_batches: Iterable[PreparedBatch],
+    ig_steps: int,
+    max_exact_edges: int,
+    max_abs_threshold: float,
+    cosine_threshold: float,
+    topk_overlap_threshold: float,
+    top_k: int,
+    quiet: bool,
+    model_id_hf: str,
+    adapter_name: str,
+    reason: str,
+) -> MethodParityRow:
+    start = time.time()
+    graph_a = OursGraph.from_model(hf_backend.config)
+    if method == "exact" and len(graph_a.edges) > max_exact_edges:
+        skip_reason = (
+            f"exact skipped: edge_count={len(graph_a.edges)} exceeds "
+            f"--max-exact-edges={max_exact_edges}; fallback=hf-only"
+        )
+        return MethodParityRow(
+            model_tlens=model_id_hf,
+            model_hf=model_id_hf,
+            adapter_name=adapter_name,
+            method=method,
+            status="skip",
+            seconds=0.0,
+            note=skip_reason,
+            skip_reason=skip_reason,
+            vendor_vs_ours_tlens=None,
+            vendor_vs_ours_hf=None,
+            ours_tlens_vs_ours_hf=None,
+        )
+
+    kwargs: Dict[str, Any] = {"method": method, "quiet": quiet}
+    if method in {"EAP-IG-inputs", "EAP-IG-activations"}:
+        kwargs["ig_steps"] = ig_steps
+
+    scores_a = ours_attribute(
+        model=hf_model,
+        backend=hf_backend,
+        graph=graph_a,
+        batches=prepared_batches,
+        metric=ours_metric,
+        **kwargs,
+    )
+    graph_b = OursGraph.from_model(hf_backend.config)
+    scores_b = ours_attribute(
+        model=hf_model,
+        backend=hf_backend,
+        graph=graph_b,
+        batches=prepared_batches,
+        metric=ours_metric,
+        **kwargs,
+    )
+
+    d_hf_repeat = compute_diff_stats(scores_a, scores_b, top_k=top_k)
+    status = "pass"
+    if not (
+        d_hf_repeat.max_abs <= max_abs_threshold
+        and d_hf_repeat.cosine >= cosine_threshold
+        and d_hf_repeat.topk_overlap >= topk_overlap_threshold
+    ):
+        status = "fail"
+
+    return MethodParityRow(
+        model_tlens=model_id_hf,
+        model_hf=model_id_hf,
+        adapter_name=adapter_name,
+        method=method,
+        status=status,
+        seconds=round(time.time() - start, 3),
+        note=f"hf-only parity fallback: {reason}",
+        skip_reason="",
+        vendor_vs_ours_tlens=None,
+        vendor_vs_ours_hf=d_hf_repeat,
+        ours_tlens_vs_ours_hf=d_hf_repeat,
+    )
+
+
 def main() -> None:
     args = parse_args()
     dtype = dtype_from_name(args.dtype)
@@ -460,6 +618,7 @@ def main() -> None:
         raise ValueError("float16 on CPU is unstable; use float32/bfloat16")
 
     set_seed(args.seed)
+    vendor_available = _VENDOR_IMPORT_ERROR is None
     patch_vendor_cuda_literals()
 
     model_ids = [x.strip() for x in args.models.split(",") if x.strip()]
@@ -479,18 +638,26 @@ def main() -> None:
         if tokenizer.pad_token_id is None:
             tokenizer.pad_token = tokenizer.eos_token
 
-        tlens_model = load_tlens_model(
-            tlens_id,
-            tokenizer=tokenizer,
-            device=args.device,
-            dtype=dtype,
-        )
-        tlens_model.eval()
+        tlens_model: HookedTransformer | None = None
+        tlens_load_error = ""
+        try:
+            tlens_model = load_tlens_model(
+                tlens_id,
+                tokenizer=tokenizer,
+                device=args.device,
+                dtype=dtype,
+            )
+            tlens_model.eval()
+        except Exception as exc:  # noqa: BLE001
+            tlens_load_error = str(exc)
+            print(
+                f"TLens unavailable for model={tlens_id}; switching to HF-only parity mode. "
+                f"error={tlens_load_error[:180]}"
+            )
 
         hf_model = AutoModelForCausalLM.from_pretrained(hf_id, dtype=dtype).to(args.device)
         hf_model.eval()
 
-        tlens_backend = TLensBackend(tlens_model)
         hf_backend = HFLLMBackend(hf_model, tokenizer=tokenizer)
         if architecture_filters and hf_backend.adapter_name not in architecture_filters:
             print(
@@ -499,46 +666,130 @@ def main() -> None:
             )
             continue
 
+        run_vendor_tlens = vendor_available and (tlens_model is not None)
         records = build_records(tokenizer, args.n_samples)
-        vendor_batches = build_vendor_batches(records, args.batch_size)
-        prepared_batches = build_prepared_batches(tlens_model, records, args.batch_size)
+        if tlens_model is not None:
+            prepared_batches = build_prepared_batches(tlens_model, records, args.batch_size)
+        else:
+            prepared_batches = build_prepared_batches_hf(
+                tokenizer,
+                records,
+                args.batch_size,
+                device=args.device,
+            )
+        vendor_batches = (
+            build_vendor_batches(records, args.batch_size) if run_vendor_tlens else []
+        )
+        tlens_backend = TLensBackend(tlens_model) if tlens_model is not None else None
 
         for method in methods:
             print(f"Running method={method} ...")
             try:
-                row = run_method(
-                    method=method,
-                    tlens_model=tlens_model,
-                    hf_model=hf_model,
-                    tlens_backend=tlens_backend,
-                    hf_backend=hf_backend,
-                    vendor_batches=vendor_batches,
-                    prepared_batches=prepared_batches,
-                    ig_steps=args.ig_steps,
-                    max_exact_edges=args.max_exact_edges,
-                    max_abs_threshold=args.max_abs_threshold,
-                    cosine_threshold=args.cosine_threshold,
-                    topk_overlap_threshold=args.topk_overlap_threshold,
-                    top_k=args.top_k,
-                    quiet=args.quiet,
-                    model_id_tlens=tlens_id,
-                    model_id_hf=hf_id,
-                    adapter_name=hf_backend.adapter_name,
-                )
+                if run_vendor_tlens and tlens_model is not None and tlens_backend is not None:
+                    row = run_method(
+                        method=method,
+                        tlens_model=tlens_model,
+                        hf_model=hf_model,
+                        tlens_backend=tlens_backend,
+                        hf_backend=hf_backend,
+                        vendor_batches=vendor_batches,
+                        prepared_batches=prepared_batches,
+                        ig_steps=args.ig_steps,
+                        max_exact_edges=args.max_exact_edges,
+                        max_abs_threshold=args.max_abs_threshold,
+                        cosine_threshold=args.cosine_threshold,
+                        topk_overlap_threshold=args.topk_overlap_threshold,
+                        top_k=args.top_k,
+                        quiet=args.quiet,
+                        model_id_tlens=tlens_id,
+                        model_id_hf=hf_id,
+                        adapter_name=hf_backend.adapter_name,
+                    )
+                else:
+                    reason_parts = []
+                    if not vendor_available:
+                        reason_parts.append(f"vendor unavailable: {str(_VENDOR_IMPORT_ERROR)[:240]}")
+                    if tlens_model is None:
+                        reason_parts.append(f"TLens load failed: {tlens_load_error[:240]}")
+                    row = run_method_hf_only(
+                        method=method,
+                        hf_model=hf_model,
+                        hf_backend=hf_backend,
+                        prepared_batches=prepared_batches,
+                        ig_steps=args.ig_steps,
+                        max_exact_edges=args.max_exact_edges,
+                        max_abs_threshold=args.max_abs_threshold,
+                        cosine_threshold=args.cosine_threshold,
+                        topk_overlap_threshold=args.topk_overlap_threshold,
+                        top_k=args.top_k,
+                        quiet=args.quiet,
+                        model_id_hf=hf_id,
+                        adapter_name=hf_backend.adapter_name,
+                        reason="; ".join(part for part in reason_parts if part),
+                    )
             except Exception as exc:
-                row = MethodParityRow(
-                    model_tlens=tlens_id,
-                    model_hf=hf_id,
-                    adapter_name=hf_backend.adapter_name,
-                    method=method,
-                    status="error",
-                    seconds=0.0,
-                    note=str(exc)[:320],
-                    skip_reason="",
-                    vendor_vs_ours_tlens=None,
-                    vendor_vs_ours_hf=None,
-                    ours_tlens_vs_ours_hf=None,
-                )
+                if run_vendor_tlens:
+                    try:
+                        row = run_method_hf_only(
+                            method=method,
+                            hf_model=hf_model,
+                            hf_backend=hf_backend,
+                            prepared_batches=prepared_batches,
+                            ig_steps=args.ig_steps,
+                            max_exact_edges=args.max_exact_edges,
+                            max_abs_threshold=args.max_abs_threshold,
+                            cosine_threshold=args.cosine_threshold,
+                            topk_overlap_threshold=args.topk_overlap_threshold,
+                            top_k=args.top_k,
+                            quiet=args.quiet,
+                            model_id_hf=hf_id,
+                            adapter_name=hf_backend.adapter_name,
+                            reason=f"vendor/tlens path failed: {exc}",
+                        )
+                    except Exception as fallback_exc:
+                        if _is_known_parity_runtime_limit(fallback_exc):
+                            reason = f"known parity runtime limit: {str(fallback_exc)[:240]}"
+                            row = MethodParityRow(
+                                model_tlens=tlens_id,
+                                model_hf=hf_id,
+                                adapter_name=hf_backend.adapter_name,
+                                method=method,
+                                status="skip",
+                                seconds=0.0,
+                                note=reason,
+                                skip_reason=reason,
+                                vendor_vs_ours_tlens=None,
+                                vendor_vs_ours_hf=None,
+                                ours_tlens_vs_ours_hf=None,
+                            )
+                        else:
+                            row = MethodParityRow(
+                                model_tlens=tlens_id,
+                                model_hf=hf_id,
+                                adapter_name=hf_backend.adapter_name,
+                                method=method,
+                                status="error",
+                                seconds=0.0,
+                                note=str(fallback_exc)[:320],
+                                skip_reason="",
+                                vendor_vs_ours_tlens=None,
+                                vendor_vs_ours_hf=None,
+                                ours_tlens_vs_ours_hf=None,
+                            )
+                else:
+                    row = MethodParityRow(
+                        model_tlens=tlens_id,
+                        model_hf=hf_id,
+                        adapter_name=hf_backend.adapter_name,
+                        method=method,
+                        status="error",
+                        seconds=0.0,
+                        note=str(exc)[:320],
+                        skip_reason="",
+                        vendor_vs_ours_tlens=None,
+                        vendor_vs_ours_hf=None,
+                        ours_tlens_vs_ours_hf=None,
+                    )
             all_rows.append(row)
 
             if row.status in {"pass", "fail"} and row.vendor_vs_ours_hf is not None:

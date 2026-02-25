@@ -2,6 +2,42 @@
 
 All notable changes to this project are documented here.
 
+## [1.5.0] - 2026-02-25
+
+### Features
+- Expanded architecture adapter coverage:
+  - added `gemma_like`
+  - added `phi_like`
+- Expanded official model catalog across text and multimodal tracks:
+  - text additions: `TinyLlama/TinyLlama-1.1B-Chat-v1.0`, `tiiuae/falcon-rw-1b`, `google/gemma-2-2b`, `microsoft/phi-2`, `microsoft/Phi-3-mini-4k-instruct`
+  - multimodal additions: `HuggingFaceTB/SmolVLM-Instruct`, `fixie-ai/ultravox-v0_5-llama-3_2-1b`, `Qwen/Qwen2-Audio-7B`, `HuggingFaceM4/idefics2-8b`
+- Added backend operator abstraction:
+  - `ProjectionAttentionOperator`
+  - adapter-owned `attention_operator(...)` contract
+- Added `Qwen2AudioForConditionalGeneration` loading path in matrix scripts.
+- Added helper script for one-click model downloads:
+  - `scripts/download_hf_models.py`
+
+### Fixes
+- `AttributionModel.from_pretrained(...)` now attempts:
+  - `AutoModel`
+  - then `AutoModelForCausalLM` fallback
+- HF backend config normalization now accepts `d_model` / `n_layers` / `n_heads`.
+- `scripts/test_text_vendor_parity.py` hardened with:
+  - HF-only fallback for non-TLens models
+  - tokenizer-agnostic fallback record generation
+  - known OPT parity runtime classified as explicit `skip` instead of hard failure
+
+### CI / Validation
+- Core route/smoke defaults are now tiered to `core` model set.
+- Full route/graph/hook matrix validated on expanded v1.5.0 candidate set.
+
+### Notes
+- Detailed implementation and release notes:
+  - `releases/v1.5.0-plan.md`
+  - `releases/v1.5.0.md`
+- `mpt_like` adapter support has been removed from the active runtime/catalog/docs surface.
+
 ## [1.4.0] - 2026-02-21
 
 ### Breaking

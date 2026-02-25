@@ -5,7 +5,7 @@ Welcome to `meap` (Multimodal Edge Attribution Patching).
 This documentation is organized by **what a new user should read first**.
 
 Current baseline:
-- Release baseline: **v1.4.0**
+- Release baseline: **v1.5.0**
 - Primary API: `AttributionModel`
 - Core contract:
   - `model -> language trunk/graph`
@@ -28,19 +28,22 @@ AttributionModel API design and scope:
 3. Model support and smoke matrix:
 - `docs/docs/SUPPORTED_MODELS.md`
 
-4. Report schema contract:
+4. Per-family support detail:
+- `docs/docs/ARCHITECTURE_FAMILIES.md`
+
+5. Report schema contract:
 - `docs/docs/REPORT_SCHEMAS.md`
 
-5. Release process:
+6. Release process:
 - `docs/docs/RELEASE_PROCESS.md`
 
-6. Add a new model in 5 minutes:
+7. Add a new model in 5 minutes:
 - `docs/docs/NEW_MODEL_ONBOARDING.md`
 
-7. Scripts guide:
+8. Scripts guide:
 - `scripts/README.md`
 
-8. Examples guide:
+9. Examples guide:
 - `examples/README.md`
 
 ## Documentation Status
@@ -49,6 +52,7 @@ Active documents:
 - `API_STABILITY.md`
 - `ATTRIBUTION_MODEL_API_DESIGN.md`
 - `SUPPORTED_MODELS.md`
+- `ARCHITECTURE_FAMILIES.md`
 - `REPORT_SCHEMAS.md`
 - `RELEASE_PROCESS.md`
 - `NEW_MODEL_ONBOARDING.md`
